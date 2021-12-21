@@ -22,21 +22,51 @@ pop: "}"
 
 arg: CNAME ":" type
 
-?type: "int" -> int
-      | "bool" -> bool
+?type: Z
+      | B
       | range
 
 range: "range" expr
 
 
-?expr: INT
-      | CNAME
-      | equality
-      | lessthan
+?expr: aexpr
+     | eq
+     | lt
+     | le
+     | gt
+     | ge
+     | ne
 
-equality: expr "==" expr
+eq: aexpr "==" aexpr
+lt: aexpr "<" aexpr
+le: aexpr "<=" aexpr
+gt: aexpr ">" aexpr
+ge: aexpr ">=" aexpr
+ne: aexpr "!=" aexpr
 
-lessthan: expr "<" expr
+?aexpr: mexpr
+      | add
+      | sub
+
+add: aexpr "+" mexpr
+sub: aexpr "-" mexpr
+
+?mexpr: term
+        | mul
+
+mul: term "*" mexpr
+
+?term: INT
+     | TRUE
+     | FALSE
+     | CNAME
+     | "(" expr ")"
+
+TRUE: "true"
+FALSE: "false"
+Z: "int"
+B: "bool"
+
 
 %import common.CNAME
 %import common.INT
@@ -126,23 +156,43 @@ class Session:
                     raise VarNotDefined(e.value)
             elif e.type == 'INT':
                 return self.Z, int(e.value)
+            elif e.type == 'TRUE':
+                return self.B, True
+            elif e.type == 'FALSE':
+                return self.B, False
             else:
                 raise Unimplemented(f'token {e.type}')
         else:
-            if e.data == 'equality':
+            if e.data in ['eq','ne']:
                 e0, e1 = e.children
                 t0,z0 = self.typecheck(e0)
                 t1,z1 = self.typecheck(e1)
                 if t0.sort != t1.sort:
-                    raise TypeException(f'Equality type mismatch: {t0} vs {t1}')
-                return self.B, z0 == z1
-            elif e.data == 'lessthan':
+                    raise TypeException(f'{e.data} operator type mismatch: {t0} vs {t1}')
+                if e.data == 'eq':
+                    return self.B, z0 == z1
+                elif e.data == 'ne':
+                    return self.B, z0 != z1
+            elif e.data in ['lt','le','gt','ge','add','sub','mul']:
                 e0, e1 = e.children
                 t0,z0 = self.typecheck(e0)
                 t1,z1 = self.typecheck(e1)
                 if t0.sort != self.Z.sort or t1.sort != self.Z.sort:
-                    raise TypeException(f'Lessthan type mismatch: {t0} vs {t1}')
-                return self.B, z0 < z1
+                    raise TypeException(f'{e.data} operator type mismatch: {t0} vs {t1}')
+                if e.data == 'lt':
+                    return self.B, z0 < z1
+                elif e.data == 'le':
+                    return self.B, z0 <= z1
+                elif e.data == 'gt':
+                    return self.B, z0 > z1
+                elif e.data == 'ge':
+                    return self.B, z0 >= z1
+                elif e.data == 'add':
+                    return self.Z, z0 + z1
+                elif e.data == 'sub':
+                    return self.Z, z0 - z1
+                elif e.data == 'mul':
+                    return self.Z, z0 * z1
             else:
                 raise Unimplemented(f'tree {e.data}')
 
@@ -154,18 +204,22 @@ class Session:
         self.solver.add(t.var(x) == z)
 
     def lookup_type(self, tname):
-        if tname.data == 'int':
-            return self.Z
-        elif tname.data == 'bool':
-            return self.B
-        elif tname.data == 'range':
-            e, = tname.children
-            t,z = self.typecheck(e)
-            if t.sort != self.Z.sort:
-                raise TypeException(f'Range type mismatch: {t}')
-            return Range(z)
-        else:
-            raise Unimplemented(f'type {tname}')
+        if isinstance(tname, lark.Token):
+            if tname.type == 'Z':
+                return self.Z
+            elif tname.type == 'B':
+                return self.B
+            else:
+                raise Unimplemented(f'type token {tname}')
+        elif isinstance(tname, lark.Tree):
+            if tname.data == 'range':
+                e, = tname.children
+                t,z = self.typecheck(e)
+                if t.sort != self.Z.sort:
+                    raise TypeException(f'Range type mismatch: {t}')
+                return Range(z)
+            else:
+                raise Unimplemented(f'type tree {tname}')
 
     def assign_arg(self, x, tname):
         if x in self.env:
