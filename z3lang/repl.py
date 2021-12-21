@@ -237,11 +237,27 @@ class Session:
         self.solver.push()
         self.solver.add(z3.Not(z))
         if self.solver.check() == z3.unsat:
+            neg_model = None
+        else:
+            neg_model = self.solver.model()
+        self.solver.pop()
+        self.solver.push()
+        self.solver.add(z)
+        if self.solver.check() == z3.unsat:
+            pos_model = None
+        else:
+            pos_model = self.solver.model()
+        self.solver.pop()
+
+        if neg_model != None and pos_model != None:
+            print('not necessarily')
+            print(neg_model)
+        elif neg_model != None and pos_model == None:
+            print('no')
+        elif neg_model == None and pos_model != None:
             print('ok')
         else:
-            print('not necessarily')
-            print(self.solver.model())
-        self.solver.pop()
+            print('unreachable')
 
     def pushfn(self, f, args, ret):
         if f in self.env:
