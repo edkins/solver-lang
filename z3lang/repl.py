@@ -135,8 +135,9 @@ class Unimplemented(Mistake):
     pass
 
 class StackFrame:
-    def __init__(self, env):
+    def __init__(self, env, name):
         self.env = env
+        self.name = name
 
 class Session:
     def __init__(self):
@@ -245,7 +246,7 @@ class Session:
     def pushfn(self, f, args, ret):
         if f in self.env:
             raise VarAlreadyDefined(f)
-        self.stack.append(StackFrame(dict(self.env)))
+        self.stack.append(StackFrame(dict(self.env), f))
         self.solver.push()
         for arg in args:
             x, tname = arg.children
@@ -283,11 +284,15 @@ class Session:
         except lark.exceptions.UnexpectedInput as ex:
             raise Mistake(ex)
 
+    def prompt(self):
+        stack = ''.join((f'{s.name} ' for s in self.stack))
+        return f'{stack}>> '
+
 def main():
     global grammar
     session = Session()
     while True:
-        text = input('>> ')
+        text = input(session.prompt())
         try:
             session.parse_and_process(text)
         except Mistake as ex:
