@@ -55,6 +55,9 @@ class Bool:
     def restrictions(self, z):
         return []
 
+    def __repr__(self):
+        return 'bool'
+
 class Int:
     def __init__(self):
         self.sort = z3.IntSort()
@@ -64,6 +67,9 @@ class Int:
 
     def restrictions(self, z):
         return []
+
+    def __repr__(self):
+        return 'int'
 
 class Range:
     def __init__(self, upper):
@@ -75,6 +81,9 @@ class Range:
 
     def restrictions(self, z):
         return [z >= 0, z < self.upper]
+
+    def __repr__(self):
+        return f'range {self.upper}'
 
 
 class Mistake(Exception):
@@ -94,6 +103,10 @@ class StackEmpty(Mistake):
 
 class Unimplemented(Mistake):
     pass
+
+class StackFrame:
+    def __init__(self, env):
+        self.env = env
 
 class Session:
     def __init__(self):
@@ -133,12 +146,6 @@ class Session:
             else:
                 raise Unimplemented(f'tree {e.data}')
 
-    def expect_type(self, e, t):
-        t1, z = self.typecheck(e)
-        if t1 != t:
-            raise TypeException(f'Expected type {t}, got {t1}')
-        return z
-
     def assign(self, x, e):
         if x in self.env:
             raise VarAlreadyDefined(x)
@@ -153,7 +160,9 @@ class Session:
             return self.B
         elif tname.data == 'range':
             e, = tname.children
-            z = self.expect_type(e, self.Z)
+            t,z = self.typecheck(e)
+            if t.sort != self.Z.sort:
+                raise TypeException(f'Range type mismatch: {t}')
             return Range(z)
         else:
             raise Unimplemented(f'type {tname}')
@@ -167,7 +176,9 @@ class Session:
             self.solver.add(item)
 
     def assertion(self, e):
-        z = self.expect_type(e, self.B)
+        t,z = self.typecheck(e)
+        if t.sort != self.B.sort:
+            raise TypeException(f'Assertion type mismatch: expected bool, got {t}')
         self.solver.push()
         self.solver.add(z3.Not(z))
         if self.solver.check() == z3.unsat:
@@ -180,7 +191,7 @@ class Session:
     def pushfn(self, f, args, ret):
         if f in self.env:
             raise VarAlreadyDefined(f)
-        self.stack.append(f)
+        self.stack.append(StackFrame(dict(self.env)))
         self.solver.push()
         for arg in args:
             x, tname = arg.children
@@ -189,6 +200,9 @@ class Session:
     def pop(self):
         if len(self.stack) == 0:
             raise StackEmpty()
+        sf = self.stack.pop()
+        self.env = sf.env
+        self.solver.pop()
 
     def process_statement(self, ast):
         if ast.data == 'assignment':
