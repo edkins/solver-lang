@@ -8,6 +8,7 @@ grammar = lark.Lark('''
            | assertion
            | pushfn
            | pop
+           | return
 
 assignment: CNAME "=" expr
 
@@ -16,6 +17,8 @@ assertion: "assert" expr
 pushfn: "fn" CNAME "(" argcomma* arg? ")" "->" type "{"
 
 pop: "}"
+
+return: "return" expr
 
 
 ?argcomma: arg ","
@@ -59,8 +62,12 @@ mul: term "*" mexpr
 ?term: INT
      | TRUE
      | FALSE
+     | call
      | CNAME
      | "(" expr ")"
+
+call: CNAME "(" exprcomma* expr? ")"
+?exprcomma: expr ","
 
 TRUE: "true"
 FALSE: "false"
@@ -115,6 +122,18 @@ class Range:
     def __repr__(self):
         return f'range {self.upper}'
 
+# Not a type in the usual sense, so no restrictions specified and `func` instead of `var`.
+class Func:
+    def __init__(self, args, ret):
+        self.args = args
+        self.ret = ret
+
+    def func(self, f):
+        return z3.Function(f, *([t.sort for x,t in self.args] + [self.ret.sort]))
+
+    def __repr__(self):
+        return f'{self.args} -> {self.ret}'
+
 
 class Mistake(Exception):
     pass
@@ -122,10 +141,25 @@ class Mistake(Exception):
 class TypeException(Mistake):
     pass
 
+class PreconditionException(Mistake):
+    pass
+
 class VarNotDefined(Mistake):
     pass
 
+class FuncNotDefined(Mistake):
+    pass
+
 class VarAlreadyDefined(Mistake):
+    pass
+
+class NotAFunction(Mistake):
+    pass
+
+class ArgCountMismatch(Mistake):
+    pass
+
+class NotInFunction(Mistake):
     pass
 
 class StackEmpty(Mistake):
@@ -135,9 +169,11 @@ class Unimplemented(Mistake):
     pass
 
 class StackFrame:
-    def __init__(self, env, name):
+    def __init__(self, env, name, functype):
         self.env = env
         self.name = name
+        self.functype = functype
+        self.equations = []
 
 class Session:
     def __init__(self):
@@ -194,8 +230,38 @@ class Session:
                     return self.Z, z0 - z1
                 elif e.data == 'mul':
                     return self.Z, z0 * z1
+            elif e.data == 'call':
+                f = e.children[0]
+                xs = e.children[1:]
+                if f not in self.env:
+                    raise FuncNotDefined(f)
+                ft = self.env[f]
+                if not isinstance(ft, Func):
+                    raise NotAFunction(f)
+                if len(ft.args) != len(xs):
+                    raise ArgCountMismatch(f'Expected {len(ft.args)} arguments, got {len(xs)}')
+                zs = []
+                for e,(x,t) in zip(xs, ft.args):
+                    zs.append(self.instance(e, t))
+                return ft.ret, ft.func(f)(*zs)
             else:
                 raise Unimplemented(f'tree {e.data}')
+
+    def instance(self, e, t):
+        t1, z = self.typecheck(e)
+        if t1.sort != t.sort:
+            raise TypeException(f'Expected {t}, got {t1}')
+        restrictions = t.restrictions(z)
+        if len(restrictions) > 0:
+            self.solver.push()
+            try:
+                self.solver.add(z3.Not(z3.And(*[r for r in restrictions])))
+                if self.solver.check() == z3.sat:
+                    print(self.solver.model())
+                    raise PreconditionException()
+            finally:
+                self.solver.pop()
+        return z
 
     def assign(self, x, e):
         if x in self.env:
@@ -203,6 +269,25 @@ class Session:
         t,z = self.typecheck(e)
         self.env[x] = t
         self.solver.add(t.var(x) == z)
+
+    def ret(self, e):
+        if len(self.stack) == 0:
+            raise NotInFunction()
+
+        z = self.instance(e, self.stack[-1].functype.ret)
+
+        func_name = '.'.join((s.name for s in self.stack))
+        sort_list = []
+        var_list = []
+        for s in self.stack:
+            for x,t in s.functype.args:
+                var_list.append(t.var(x))
+        func = self.stack[-1].functype.func(func_name)
+        if len(var_list) > 0:
+            eq = z3.ForAll(var_list, func(*var_list) == z)
+        else:
+            eq = func() == z
+        self.stack[-1].equations.append(eq)
 
     def lookup_type(self, tname):
         if isinstance(tname, lark.Token):
@@ -222,10 +307,9 @@ class Session:
             else:
                 raise Unimplemented(f'type tree {tname}')
 
-    def assign_arg(self, x, tname):
+    def assign_arg(self, x, t):
         if x in self.env:
             raise VarAlreadyDefined(x)
-        t = self.lookup_type(tname)
         self.env[x] = t
         for item in t.restrictions(t.var(x)):
             self.solver.add(item)
@@ -235,25 +319,31 @@ class Session:
         if t.sort != self.B.sort:
             raise TypeException(f'Assertion type mismatch: expected bool, got {t}')
         self.solver.push()
-        self.solver.add(z3.Not(z))
-        if self.solver.check() == z3.unsat:
-            neg_model = None
-        else:
-            neg_model = self.solver.model()
-        self.solver.pop()
+        try:
+            self.solver.add(z3.Not(z))
+            if self.solver.check() == z3.unsat:
+                neg_model = None
+            else:
+                neg_model = self.solver.model()
+        finally:
+            self.solver.pop()
         self.solver.push()
-        self.solver.add(z)
-        if self.solver.check() == z3.unsat:
-            pos_model = None
-        else:
-            pos_model = self.solver.model()
-        self.solver.pop()
+        try:
+            self.solver.add(z)
+            if self.solver.check() == z3.unsat:
+                pos_model = None
+            else:
+                pos_model = self.solver.model()
+        finally:
+            self.solver.pop()
 
         if neg_model != None and pos_model != None:
             print('not necessarily')
             print(neg_model)
+            raise PreconditionException()
         elif neg_model != None and pos_model == None:
             print('no')
+            raise PreconditionException()
         elif neg_model == None and pos_model != None:
             print('ok')
         else:
@@ -262,11 +352,17 @@ class Session:
     def pushfn(self, f, args, ret):
         if f in self.env:
             raise VarAlreadyDefined(f)
-        self.stack.append(StackFrame(dict(self.env), f))
-        self.solver.push()
+        a = []
         for arg in args:
             x, tname = arg.children
-            self.assign_arg(x, tname)
+            t = self.lookup_type(tname)
+            a.append((x,t))
+        r = self.lookup_type(ret)
+
+        self.stack.append(StackFrame(dict(self.env), f, Func(a, r)))
+        self.solver.push()
+        for x,t in a:
+            self.assign_arg(x, t)
 
     def pop(self):
         if len(self.stack) == 0:
@@ -274,6 +370,14 @@ class Session:
         sf = self.stack.pop()
         self.env = sf.env
         self.solver.pop()
+        if sf.name in self.env:
+            raise VarAlreadyDefined(f'Function name {sf.name} already defined')
+        self.env[sf.name] = sf.functype
+        if len(sf.equations) > 0:
+            if len(self.stack) != 0:
+                raise Unimplemented('Can currently only return from outermost function')
+            for eq in sf.equations:
+                self.solver.add(eq)
 
     def process_statement(self, ast):
         if ast.data == 'assignment':
@@ -289,6 +393,9 @@ class Session:
             self.pushfn(f, args, ret)
         elif ast.data == 'pop':
             self.pop()
+        elif ast.data == 'return':
+            e, = ast.children
+            self.ret(e)
         else:
             raise Unimplemented(f'statement {ast.data}')
 
