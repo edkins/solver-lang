@@ -9,6 +9,7 @@ grammar = lark.Lark('''
            | pushfn
            | pop
            | return
+           | sample
 
 assignment: CNAME "=" expr
 
@@ -19,6 +20,8 @@ pushfn: "fn" CNAME "(" argcomma* arg? ")" "->" type "{"
 pop: "}"
 
 return: "return" expr
+
+sample: expr
 
 
 ?argcomma: arg ","
@@ -92,6 +95,9 @@ class Bool:
     def restrictions(self, z):
         return []
 
+    def subst(self, substitutions):
+        return self
+
     def __repr__(self):
         return 'bool'
 
@@ -104,6 +110,9 @@ class Int:
 
     def restrictions(self, z):
         return []
+
+    def subst(self, substitutions):
+        return self
 
     def __repr__(self):
         return 'int'
@@ -118,6 +127,12 @@ class Range:
 
     def restrictions(self, z):
         return [z >= 0, z < self.upper]
+
+    def subst(self, substitutions):
+        if len(substitutions) == 0:
+            return self
+        else:
+            return Range(z3.substitute(self.upper, *substitutions))
 
     def __repr__(self):
         return f'range {self.upper}'
@@ -139,6 +154,9 @@ class Mistake(Exception):
     pass
 
 class TypeException(Mistake):
+    pass
+
+class AssertionException(Mistake):
     pass
 
 class PreconditionException(Mistake):
@@ -192,11 +210,11 @@ class Session:
                 else:
                     raise VarNotDefined(e.value)
             elif e.type == 'INT':
-                return self.Z, int(e.value)
+                return self.Z, z3.IntVal(int(e.value))
             elif e.type == 'TRUE':
-                return self.B, True
+                return self.B, z3.BoolVal(True)
             elif e.type == 'FALSE':
-                return self.B, False
+                return self.B, z3.BoolVal(False)
             else:
                 raise Unimplemented(f'token {e.type}')
         else:
@@ -241,8 +259,11 @@ class Session:
                 if len(ft.args) != len(xs):
                     raise ArgCountMismatch(f'Expected {len(ft.args)} arguments, got {len(xs)}')
                 zs = []
+                substitutions = []
                 for e,(x,t) in zip(xs, ft.args):
-                    zs.append(self.instance(e, t))
+                    z = self.instance(e, t.subst(substitutions))
+                    zs.append(z)
+                    substitutions.append((t.var(x),z))
                 return ft.ret, ft.func(f)(*zs)
             else:
                 raise Unimplemented(f'tree {e.data}')
@@ -340,10 +361,10 @@ class Session:
         if neg_model != None and pos_model != None:
             print('not necessarily')
             print(neg_model)
-            raise PreconditionException()
+            raise AssertionException()
         elif neg_model != None and pos_model == None:
             print('no')
-            raise PreconditionException()
+            raise AssertionException()
         elif neg_model == None and pos_model != None:
             print('ok')
         else:
@@ -352,17 +373,56 @@ class Session:
     def pushfn(self, f, args, ret):
         if f in self.env:
             raise VarAlreadyDefined(f)
-        a = []
-        for arg in args:
-            x, tname = arg.children
-            t = self.lookup_type(tname)
-            a.append((x,t))
-        r = self.lookup_type(ret)
 
-        self.stack.append(StackFrame(dict(self.env), f, Func(a, r)))
         self.solver.push()
-        for x,t in a:
-            self.assign_arg(x, t)
+        try:
+            a = []
+            for arg in args:
+                x, tname = arg.children
+                t = self.lookup_type(tname)
+                a.append((x,t))
+                self.assign_arg(x, t)
+            r = self.lookup_type(ret)
+
+            self.stack.append(StackFrame(dict(self.env), f, Func(a, r)))
+        except Exception as e:
+            self.solver.pop()
+            raise e
+
+    def get_possible_values(self, t, z, maximum):
+        self.solver.push()
+        try:
+            var = t.var('.result')
+            self.solver.add(var == z)
+            result = []
+            for i in range(maximum):
+                if self.solver.check() == z3.sat:
+                    m = self.solver.model()
+                    value = m[var]
+                    if value != None:
+                        result.append(value)
+                        self.solver.add(var != value)
+                    else:
+                        return result, True    # satisfiable but no value reported for var
+                else:
+                    return result, False
+            return result, False
+        finally:
+            self.solver.pop()
+
+    def sample(self, e):
+        t,z = self.typecheck(e)
+        print(f'Type: {t}')
+        maximum = 21
+        values, mystery = self.get_possible_values(t, z, maximum)
+        string = '{'
+        string += ', '.join(str(v) for v in values[:maximum-1])
+        if mystery:
+            string += '???'
+        elif len(values) == maximum:
+            string += '...'
+        string += '}'
+        print(string)
 
     def pop(self):
         if len(self.stack) == 0:
@@ -396,6 +456,9 @@ class Session:
         elif ast.data == 'return':
             e, = ast.children
             self.ret(e)
+        elif ast.data == 'sample':
+            e, = ast.children
+            self.sample(e)
         else:
             raise Unimplemented(f'statement {ast.data}')
 
