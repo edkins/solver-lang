@@ -9,6 +9,7 @@ grammar = lark.Lark('''
            | pushfn
            | pop
            | return
+           | env
            | sample
 
 assignment: CNAME "=" expr
@@ -20,6 +21,8 @@ pushfn: "fn" CNAME "(" argcomma* arg? ")" "->" type "{"
 pop: "}"
 
 return: "return" expr
+
+env: "env"
 
 sample: expr
 
@@ -68,9 +71,12 @@ mul: term "*" mexpr
      | call
      | CNAME
      | "(" expr ")"
+     | minus
 
 call: CNAME "(" exprcomma* expr? ")"
 ?exprcomma: expr ","
+
+minus: "-" term
 
 TRUE: "true"
 FALSE: "false"
@@ -192,6 +198,7 @@ class StackFrame:
         self.name = name
         self.functype = functype
         self.equations = []
+        self.substitutions = []
 
 class Session:
     def __init__(self):
@@ -248,6 +255,10 @@ class Session:
                     return self.Z, z0 - z1
                 elif e.data == 'mul':
                     return self.Z, z0 * z1
+            elif e.data == 'minus':
+                e, = e.children
+                z = self.instance(e, self.Z)
+                return self.Z, -z
             elif e.data == 'call':
                 f = e.children[0]
                 xs = e.children[1:]
@@ -291,24 +302,42 @@ class Session:
         self.env[x] = t
         self.solver.add(t.var(x) == z)
 
+        func_name = '.'.join([s.name for s in self.stack] + [x])
+        xcall = self.add_equation(func_name, z)
+        self.add_substitution(t, x, xcall)
+
     def ret(self, e):
         if len(self.stack) == 0:
             raise NotInFunction()
 
         z = self.instance(e, self.stack[-1].functype.ret)
-
         func_name = '.'.join((s.name for s in self.stack))
-        sort_list = []
+        self.add_equation(func_name, z)
+
+    def add_equation(self, func_name, zorig):
+        z = self.perform_substitution(zorig)
         var_list = []
         for s in self.stack:
             for x,t in s.functype.args:
                 var_list.append(t.var(x))
         func = self.stack[-1].functype.func(func_name)
+        func_with_vars = func(*var_list)
         if len(var_list) > 0:
-            eq = z3.ForAll(var_list, func(*var_list) == z)
+            eq = z3.ForAll(var_list, func_with_vars == z)
         else:
-            eq = func() == z
+            eq = func_with_vars == z
         self.stack[-1].equations.append(eq)
+        return func_with_vars
+
+    def add_substitution(self, t, x, z):
+        if len(self.stack) == 0:
+            raise NotInFunction()
+        self.stack[-1].substitutions.append((t.var(x), z))
+
+    def perform_substitution(self, z):
+        if len(self.stack) == 0:
+            raise NotInFunction()
+        return z3.substitute(z, self.stack[-1].substitutions)
 
     def lookup_type(self, tname):
         if isinstance(tname, lark.Token):
@@ -376,15 +405,15 @@ class Session:
 
         self.solver.push()
         try:
-            a = []
-            for arg in args:
-                x, tname = arg.children
-                t = self.lookup_type(tname)
-                a.append((x,t))
-                self.assign_arg(x, t)
             r = self.lookup_type(ret)
+            self.stack.append(StackFrame(dict(self.env), f, Func([], r)))
+            for arg in args:
+                xtoken, tname = arg.children
+                x = xtoken.value
+                t = self.lookup_type(tname)
+                self.stack[-1].functype.args.append((x,t))
+                self.assign_arg(x, t)
 
-            self.stack.append(StackFrame(dict(self.env), f, Func(a, r)))
         except Exception as e:
             self.solver.pop()
             raise e
@@ -437,7 +466,12 @@ class Session:
             if len(self.stack) != 0:
                 raise Unimplemented('Can currently only return from outermost function')
             for eq in sf.equations:
+                print(f'Adding equation: {eq}')
                 self.solver.add(eq)
+
+    def print_env(self):
+        for x in sorted(self.env.keys()):
+            print(f'{x:10} {self.env[x]}')
 
     def process_statement(self, ast):
         if ast.data == 'assignment':
@@ -447,7 +481,7 @@ class Session:
             e, = ast.children
             self.assertion(e)
         elif ast.data == 'pushfn':
-            f = ast.children[0]
+            f = ast.children[0].value
             args = ast.children[1:-1]
             ret = ast.children[-1]
             self.pushfn(f, args, ret)
@@ -459,6 +493,8 @@ class Session:
         elif ast.data == 'sample':
             e, = ast.children
             self.sample(e)
+        elif ast.data == 'env':
+            self.print_env()
         else:
             raise Unimplemented(f'statement {ast.data}')
 
