@@ -2,94 +2,9 @@ import lark
 import readline
 import traceback
 import z3
-
-grammar = lark.Lark('''
-?start: assignment
-           | assertion
-           | pushfn
-           | pop
-           | return
-           | env
-           | sample
-
-assignment: CNAME "=" expr
-
-assertion: "assert" expr
-
-pushfn: "fn" CNAME "(" argcomma* arg? ")" "->" type "{"
-
-pop: "}"
-
-return: "return" expr
-
-env: "env"
-
-sample: expr
-
-
-?argcomma: arg ","
-
-arg: CNAME ":" type
-
-?type: Z
-      | B
-      | range
-
-range: "range" expr
-
-
-?expr: aexpr
-     | eq
-     | lt
-     | le
-     | gt
-     | ge
-     | ne
-
-eq: aexpr "==" aexpr
-lt: aexpr "<" aexpr
-le: aexpr "<=" aexpr
-gt: aexpr ">" aexpr
-ge: aexpr ">=" aexpr
-ne: aexpr "!=" aexpr
-
-?aexpr: mexpr
-      | add
-      | sub
-
-add: aexpr "+" mexpr
-sub: aexpr "-" mexpr
-
-?mexpr: term
-        | mul
-
-mul: term "*" mexpr
-
-?term: INT
-     | TRUE
-     | FALSE
-     | call
-     | CNAME
-     | "(" expr ")"
-     | minus
-
-call: CNAME "(" exprcomma* expr? ")"
-?exprcomma: expr ","
-
-minus: "-" term
-
-TRUE: "true"
-FALSE: "false"
-Z: "int"
-B: "bool"
-
-
-%import common.CNAME
-%import common.INT
-%import common.WS
-
-%ignore WS
-''')
+from z3lang.errors import *
+from z3lang.expr import Expr
+from z3lang.grammar import grammar
 
 class Bool:
     def __init__(self):
@@ -155,43 +70,6 @@ class Func:
     def __repr__(self):
         return f'{self.args} -> {self.ret}'
 
-
-class Mistake(Exception):
-    pass
-
-class TypeException(Mistake):
-    pass
-
-class AssertionException(Mistake):
-    pass
-
-class PreconditionException(Mistake):
-    pass
-
-class VarNotDefined(Mistake):
-    pass
-
-class FuncNotDefined(Mistake):
-    pass
-
-class VarAlreadyDefined(Mistake):
-    pass
-
-class NotAFunction(Mistake):
-    pass
-
-class ArgCountMismatch(Mistake):
-    pass
-
-class NotInFunction(Mistake):
-    pass
-
-class StackEmpty(Mistake):
-    pass
-
-class Unimplemented(Mistake):
-    pass
-
 class StackFrame:
     def __init__(self, env, name, functype):
         self.env = env
@@ -207,6 +85,16 @@ class Session:
         self.stack = []
         self.B = Bool()
         self.Z = Int()
+        self.builtins = {
+            'lt': (Func([('a', self.Z), ('b', self.Z)], self.B), lambda a,b:a<b),
+            'le': (Func([('a', self.Z), ('b', self.Z)], self.B), lambda a,b:a<=b),
+            'gt': (Func([('a', self.Z), ('b', self.Z)], self.B), lambda a,b:a>b),
+            'ge': (Func([('a', self.Z), ('b', self.Z)], self.B), lambda a,b:a>=b),
+            'add': (Func([('a', self.Z), ('b', self.Z)], self.Z), lambda a,b:a+b),
+            'sub': (Func([('a', self.Z), ('b', self.Z)], self.Z), lambda a,b:a-b),
+            'mul': (Func([('a', self.Z), ('b', self.Z)], self.Z), lambda a,b:a*b),
+            'neg': (Func([('a', self.Z)], self.Z), lambda a:-a),
+        }
 
     def typecheck(self, e):
         if isinstance(e, lark.Token):
@@ -235,49 +123,34 @@ class Session:
                     return self.B, z0 == z1
                 elif e.data == 'ne':
                     return self.B, z0 != z1
-            elif e.data in ['lt','le','gt','ge','add','sub','mul']:
-                e0, e1 = e.children
-                t0,z0 = self.typecheck(e0)
-                t1,z1 = self.typecheck(e1)
-                if t0.sort != self.Z.sort or t1.sort != self.Z.sort:
-                    raise TypeException(f'{e.data} operator type mismatch: {t0} vs {t1}')
-                if e.data == 'lt':
-                    return self.B, z0 < z1
-                elif e.data == 'le':
-                    return self.B, z0 <= z1
-                elif e.data == 'gt':
-                    return self.B, z0 > z1
-                elif e.data == 'ge':
-                    return self.B, z0 >= z1
-                elif e.data == 'add':
-                    return self.Z, z0 + z1
-                elif e.data == 'sub':
-                    return self.Z, z0 - z1
-                elif e.data == 'mul':
-                    return self.Z, z0 * z1
-            elif e.data == 'minus':
-                e, = e.children
-                z = self.instance(e, self.Z)
-                return self.Z, -z
+            elif e.data in self.builtins:
+                xs = e.children
+                ft,pyfunc = self.builtins[e.data]
+                zs = self.func_zs(ft, xs)
+                return ft.ret, pyfunc(*zs)
             elif e.data == 'call':
                 f = e.children[0]
                 xs = e.children[1:]
                 if f not in self.env:
                     raise FuncNotDefined(f)
                 ft = self.env[f]
-                if not isinstance(ft, Func):
-                    raise NotAFunction(f)
-                if len(ft.args) != len(xs):
-                    raise ArgCountMismatch(f'Expected {len(ft.args)} arguments, got {len(xs)}')
-                zs = []
-                substitutions = []
-                for e,(x,t) in zip(xs, ft.args):
-                    z = self.instance(e, t.subst(substitutions))
-                    zs.append(z)
-                    substitutions.append((t.var(x),z))
+                zs = self.func_zs(ft, xs)
                 return ft.ret, ft.func(f)(*zs)
             else:
                 raise Unimplemented(f'tree {e.data}')
+
+    def func_zs(self, ft, xs):
+        if not isinstance(ft, Func):
+            raise NotAFunction(f)
+        if len(ft.args) != len(xs):
+            raise ArgCountMismatch(f'Expected {len(ft.args)} arguments, got {len(xs)}')
+        zs = []
+        substitutions = []
+        for e,(x,t) in zip(xs, ft.args):
+            z = self.instance(e, t.subst(substitutions))
+            zs.append(z)
+            substitutions.append((t.var(x),z))
+        return zs
 
     def instance(self, e, t):
         t1, z = self.typecheck(e)
