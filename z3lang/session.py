@@ -116,7 +116,7 @@ class Session:
         if x in self.env:
             raise VarAlreadyDefined(x)
         ex = self.typecheck(e)
-        self.env[x] = ex
+        self.env[x] = Expr(ex.typ, *ex.typ.vars(x))
         for v,name,z in zip(ex.typ.vars(x), ex.typ.varnames(x), ex.zs):
             self.solver.add(v == z)
             func_name = '.'.join([s.name for s in self.stack] + [name])
