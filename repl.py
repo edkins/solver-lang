@@ -5,6 +5,7 @@ import z3
 from z3lang.errors import *
 from z3lang.expr import Expr
 from z3lang.grammar import grammar
+from z3lang.misc import or_zs
 from z3lang.types import *
 
 class StackFrame:
@@ -20,51 +21,49 @@ class Session:
         self.env = {}
         self.solver = z3.Solver()
         self.stack = []
-        self.B = Bool()
-        self.Z = Int()
         self.builtins = {
-            'lt': (Func([('a', self.Z), ('b', self.Z)], self.B), lambda a,b:a<b),
-            'le': (Func([('a', self.Z), ('b', self.Z)], self.B), lambda a,b:a<=b),
-            'gt': (Func([('a', self.Z), ('b', self.Z)], self.B), lambda a,b:a>b),
-            'ge': (Func([('a', self.Z), ('b', self.Z)], self.B), lambda a,b:a>=b),
-            'add': (Func([('a', self.Z), ('b', self.Z)], self.Z), lambda a,b:a+b),
-            'sub': (Func([('a', self.Z), ('b', self.Z)], self.Z), lambda a,b:a-b),
-            'mul': (Func([('a', self.Z), ('b', self.Z)], self.Z), lambda a,b:a*b),
-            'neg': (Func([('a', self.Z)], self.Z), lambda a:-a),
+            'lt': (Func([int_arg('a'), int_arg('b')], bool_arg('.ret')), lambda a,b:a<b),
+            'le': (Func([int_arg('a'), int_arg('b')], bool_arg('.ret')), lambda a,b:a<=b),
+            'gt': (Func([int_arg('a'), int_arg('b')], bool_arg('.ret')), lambda a,b:a>b),
+            'ge': (Func([int_arg('a'), int_arg('b')], bool_arg('.ret')), lambda a,b:a>=b),
+            'add': (Func([int_arg('a'), int_arg('b')], int_arg('.ret')), lambda a,b:a+b),
+            'sub': (Func([int_arg('a'), int_arg('b')], int_arg('.ret')), lambda a,b:a-b),
+            'mul': (Func([int_arg('a'), int_arg('b')], int_arg('.ret')), lambda a,b:a*b),
+            'neg': (Func([int_arg('a')], int_arg('.ret')), lambda a:-a),
         }
 
     def typecheck(self, e):
         if isinstance(e, lark.Token):
             if e.type == 'CNAME':
                 if e.value in self.env:
-                    t = self.env[e.value]
-                    return t, t.var(e.value)
+                    result = self.env[e.value]
+                    if isinstance(result, Func):
+                        raise IsAFunction(e.value)
+                    return result
                 else:
                     raise VarNotDefined(e.value)
             elif e.type == 'INT':
-                return self.Z, z3.IntVal(int(e.value))
+                return Expr(Z, z3.IntVal(int(e.value)))
             elif e.type == 'TRUE':
-                return self.B, z3.BoolVal(True)
+                return Expr(B, z3.BoolVal(True))
             elif e.type == 'FALSE':
-                return self.B, z3.BoolVal(False)
+                return Expr(B, z3.BoolVal(False))
             else:
                 raise Unimplemented(f'token {e.type}')
         else:
             if e.data in ['eq','ne']:
                 e0, e1 = e.children
-                t0,z0 = self.typecheck(e0)
-                t1,z1 = self.typecheck(e1)
-                if t0.sort != t1.sort:
-                    raise TypeException(f'{e.data} operator type mismatch: {t0} vs {t1}')
+                ex0 = self.typecheck(e0)
+                ex1 = self.typecheck(e1)
                 if e.data == 'eq':
-                    return self.B, z0 == z1
+                    return ex0.eq(ex1, negate=False)
                 elif e.data == 'ne':
-                    return self.B, z0 != z1
+                    return ex0.eq(ex1, negate=True)
             elif e.data in self.builtins:
                 xs = e.children
                 ft,pyfunc = self.builtins[e.data]
                 zs = self.func_zs(ft, xs)
-                return ft.ret, pyfunc(*zs)
+                return Expr(ft.ret.typ, pyfunc(*zs))
             elif e.data == 'call':
                 f = e.children[0]
                 xs = e.children[1:]
@@ -72,7 +71,7 @@ class Session:
                     raise FuncNotDefined(f)
                 ft = self.env[f]
                 zs = self.func_zs(ft, xs)
-                return ft.ret, ft.func(f)(*zs)
+                return Expr(ft.ret.typ, *[f(*zs) for f in ft.funcs(f)])
             else:
                 raise Unimplemented(f'tree {e.data}')
 
@@ -83,54 +82,73 @@ class Session:
             raise ArgCountMismatch(f'Expected {len(ft.args)} arguments, got {len(xs)}')
         zs = []
         substitutions = []
-        for e,(x,t) in zip(xs, ft.args):
-            z = self.instance(e, t.subst(substitutions))
-            zs.append(z)
-            substitutions.append((t.var(x),z))
+        for e,arg in zip(xs, ft.args):
+            vs = arg.vars()
+            ex = self.typecheck(e).coerce(arg.typ)
+            if len(vs) != len(ex.zs):
+                raise UnexpectedException(f'Length of arg vars = {len(vs)}, length of expression zs = {len(ex.zs)}')
+            for v,z in zip(vs, ex.zs):
+                zs.append(z)
+                substitutions.append((v,z))
+        for pre in ft.preconditions():
+            self.check_precondition(pre, substitutions)
         return zs
 
-    def instance(self, e, t):
-        t1, z = self.typecheck(e)
-        if t1.sort != t.sort:
-            raise TypeException(f'Expected {t}, got {t1}')
-        restrictions = t.restrictions(z)
-        if len(restrictions) > 0:
-            self.solver.push()
-            try:
-                self.solver.add(z3.Not(z3.And(*[r for r in restrictions])))
-                if self.solver.check() == z3.sat:
-                    print(self.solver.model())
-                    raise PreconditionException()
-            finally:
-                self.solver.pop()
-        return z
+    def check_precondition(self, pre, substitutions):
+        self.solver.push()
+        try:
+            self.solver.add(z3.Not(z3.substitute(pre, substitutions)))
+            if self.solver.check() == z3.sat:
+                print(self.solver.model())
+                raise PreconditionException()
+        finally:
+            self.solver.pop()
+
+    def check_postcondition(self, post):
+        self.solver.push()
+        try:
+            self.solver.add(z3.Not(post))
+            if self.solver.check() == z3.sat:
+                print(self.solver.model())
+                raise PostconditionException()
+        finally:
+            self.solver.pop()
 
     def assign(self, x, e):
         if x in self.env:
             raise VarAlreadyDefined(x)
-        t,z = self.typecheck(e)
-        self.env[x] = t
-        self.solver.add(t.var(x) == z)
-
-        func_name = '.'.join([s.name for s in self.stack] + [x])
-        xcall = self.add_equation(func_name, z)
-        self.add_substitution(t, x, xcall)
+        ex = self.typecheck(e)
+        self.env[x] = ex
+        for v,name,z in zip(ex.typ.vars(x), ex.typ.varnames(x), ex.zs):
+            self.solver.add(v == z)
+            func_name = '.'.join([s.name for s in self.stack] + [name])
+            if len(self.stack) > 0:
+                xcall = self.add_equation(func_name, z)
+                self.stack[-1].substitutions.append((v, xcall))
 
     def ret(self, e):
         if len(self.stack) == 0:
             raise NotInFunction()
 
-        z = self.instance(e, self.stack[-1].functype.ret)
-        func_name = '.'.join((s.name for s in self.stack))
-        self.add_equation(func_name, z)
+        ex = self.typecheck(e).coerce(self.stack[-1].functype.ret.typ)
+        for postcondition in self.stack[-1].functype.postconditions(ex):
+            self.check_postcondition(postcondition)
+
+        func_name = '.'.join([s.name for s in self.stack])
+        for x,z in zip(ex.typ.varnames(func_name), ex.zs):
+            self.add_equation(x, z)
 
     def add_equation(self, func_name, zorig):
+        if len(self.stack) == 0:
+            raise NotInFunction()
+
         z = self.perform_substitution(zorig)
         var_list = []
         for s in self.stack:
-            for x,t in s.functype.args:
-                var_list.append(t.var(x))
-        func = self.stack[-1].functype.func(func_name)
+            for arg in s.functype.args:
+                for v in arg.vars():
+                    var_list.append(v)
+        func = self.stack[-1].functype.func(func_name, zorig.sort())
         func_with_vars = func(*var_list)
         if len(var_list) > 0:
             eq = z3.ForAll(var_list, func_with_vars == z)
@@ -139,48 +157,39 @@ class Session:
         self.stack[-1].equations.append(eq)
         return func_with_vars
 
-    def add_substitution(self, t, x, z):
-        if len(self.stack) == 0:
-            raise NotInFunction()
-        self.stack[-1].substitutions.append((t.var(x), z))
-
     def perform_substitution(self, z):
         if len(self.stack) == 0:
             raise NotInFunction()
         return z3.substitute(z, self.stack[-1].substitutions)
 
-    def lookup_type(self, tname):
+    def lookup_type(self, tname, argname):
         if isinstance(tname, lark.Token):
             if tname.type == 'Z':
-                return self.Z
+                return int_arg(argname)
             elif tname.type == 'B':
-                return self.B
+                return bool_arg(argname)
             else:
                 raise Unimplemented(f'type token {tname}')
         elif isinstance(tname, lark.Tree):
             if tname.data == 'range':
                 e, = tname.children
-                t,z = self.typecheck(e)
-                if t.sort != self.Z.sort:
-                    raise TypeException(f'Range type mismatch: {t}')
-                return Range(z)
+                ex = self.typecheck(e).coerce(Z)
+                return range_arg(argname, ex.zs[0])
             else:
                 raise Unimplemented(f'type tree {tname}')
 
-    def assign_arg(self, x, t):
-        if x in self.env:
+    def assign_arg(self, arg):
+        if arg.name in self.env:
             raise VarAlreadyDefined(x)
-        self.env[x] = t
-        for item in t.restrictions(t.var(x)):
+        self.env[arg.name] = arg.expr()
+        for item in arg.restrictions:
             self.solver.add(item)
 
     def assertion(self, e):
-        t,z = self.typecheck(e)
-        if t.sort != self.B.sort:
-            raise TypeException(f'Assertion type mismatch: expected bool, got {t}')
+        ex = self.typecheck(e).coerce(B)
         self.solver.push()
         try:
-            self.solver.add(z3.Not(z))
+            self.solver.add(z3.Not(ex.zs[0]))
             if self.solver.check() == z3.unsat:
                 neg_model = None
             else:
@@ -189,7 +198,7 @@ class Session:
             self.solver.pop()
         self.solver.push()
         try:
-            self.solver.add(z)
+            self.solver.add(ex.zs[0])
             if self.solver.check() == z3.unsat:
                 pos_model = None
             else:
@@ -215,34 +224,33 @@ class Session:
 
         self.solver.push()
         try:
-            r = self.lookup_type(ret)
+            r = self.lookup_type(ret, '.ret')
             self.stack.append(StackFrame(dict(self.env), f, Func([], r)))
             for arg in args:
                 xtoken, tname = arg.children
-                x = xtoken.value
-                t = self.lookup_type(tname)
-                self.stack[-1].functype.args.append((x,t))
-                self.assign_arg(x, t)
+                arg = self.lookup_type(tname, xtoken.value)
+                self.stack[-1].functype.args.append(arg)
+                self.assign_arg(arg)
 
         except Exception as e:
             self.solver.pop()
             raise e
 
-    def get_possible_values(self, t, z, maximum):
+    def get_possible_values(self, expr, maximum):
         self.solver.push()
         try:
-            var = t.var('.result')
-            self.solver.add(var == z)
+            vs = expr.typ.vars('.result')
+            for var,z in zip(vs, expr.zs):
+                self.solver.add(var == z)
             result = []
             for i in range(maximum):
                 if self.solver.check() == z3.sat:
                     m = self.solver.model()
-                    value = m[var]
-                    if value != None:
-                        result.append(value)
-                        self.solver.add(var != value)
-                    else:
+                    values = [m[var] for var in vs]
+                    if None in values:
                         return result, True    # satisfiable but no value reported for var
+                    result.append(values)
+                    self.solver.add(or_zs([vs[i] != values[i] for i in range(len(vs))]))
                 else:
                     return result, False
             return result, False
@@ -250,10 +258,10 @@ class Session:
             self.solver.pop()
 
     def sample(self, e):
-        t,z = self.typecheck(e)
-        print(f'Type: {t}')
+        ex = self.typecheck(e)
+        print(f'Type: {ex.typ}')
         maximum = 21
-        values, mystery = self.get_possible_values(t, z, maximum)
+        values, mystery = self.get_possible_values(ex, maximum)
         string = '{'
         string += ', '.join(str(v) for v in values[:maximum-1])
         if mystery:
@@ -286,7 +294,7 @@ class Session:
     def process_statement(self, ast):
         if ast.data == 'assignment':
             x, e = ast.children
-            self.assign(x, e)
+            self.assign(x.value, e)
         elif ast.data == 'assertion':
             e, = ast.children
             self.assertion(e)

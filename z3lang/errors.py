@@ -10,6 +10,9 @@ class AssertionException(Mistake):
 class PreconditionException(Mistake):
     pass
 
+class PostconditionException(Mistake):
+    pass
+
 class VarNotDefined(Mistake):
     pass
 
@@ -20,6 +23,9 @@ class VarAlreadyDefined(Mistake):
     pass
 
 class NotAFunction(Mistake):
+    pass
+
+class IsAFunction(Mistake):
     pass
 
 class ArgCountMismatch(Mistake):

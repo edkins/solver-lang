@@ -68,12 +68,12 @@ mul: term "*" mexpr
      | call
      | CNAME
      | "(" expr ")"
-     | minus
+     | neg
 
 call: CNAME "(" exprcomma* expr? ")"
 ?exprcomma: expr ","
 
-minus: "-" term
+neg: "-" term
 
 TRUE: "true"
 FALSE: "false"
