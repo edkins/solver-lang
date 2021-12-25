@@ -54,7 +54,7 @@ class TupleInterp:
         return isinstance(other, TupleInterp) and self.interps == other.interps
 
 def tuple_type(ts):
-    name = '(' + ','.join((t.name for t in ts)) + ')'
+    name = 'tuple[' + ','.join((t.name for t in ts)) + ']'
     interp = TupleInterp([t.interp for t in ts])
     sorts = []
     restrictions = []
@@ -63,7 +63,7 @@ def tuple_type(ts):
     count = 0
     for t in ts:
         sorts += t.sorts
-        restrictions += t.zs_restrictions(t.vars_named(our_varnames[count:count+i]))
+        restrictions += t.zs_restrictions(t.vars_named(our_varnames[count:count+len(t.sorts)]))
         count += len(t.sorts)
     return Type(sorts, name, restrictions, interp)
 

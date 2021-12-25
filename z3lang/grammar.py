@@ -34,9 +34,12 @@ arg: CNAME ":" type
 ?type: Z
       | B
       | range
+      | tuple
 
 range: "range" expr
+tuple: "tuple" "[" typecomma* type? "]"
 
+?typecomma: type ","
 
 ?expr: aexpr
      | eq
@@ -71,11 +74,13 @@ mul: term "*" mexpr
      | call
      | CNAME
      | "(" expr ")"
+     | listing
      | neg
 
 call: CNAME "(" exprcomma* expr? ")"
 ?exprcomma: expr ","
 
+listing: "[" exprcomma* expr? "]"
 neg: "-" term
 
 TRUE: "true"

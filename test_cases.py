@@ -96,3 +96,25 @@ def test_range_precondition():
 
     assert f(4) == 12
     """)
+
+def test_dependent():
+    run_script("""
+fn f(x:range 5, y:range x) -> range 8 {
+    return x + y
+}
+assert f(4,3) == 7
+""")
+
+def test_tuple_eq():
+    run_script("""
+assert [1,true,[2,3]] == [1,true,[2,3]]
+""")
+
+def test_tuple_ret():
+    run_script("""
+fn combine(x:int, y:bool) -> tuple[int,bool] {
+    return [x,y]
+}
+assert combine(4,true) == [4,true]
+""")
+

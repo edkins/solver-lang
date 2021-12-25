@@ -97,6 +97,12 @@ class Session:
                 ft = self.env[f]
                 zs = self.func_zs(ft, xs)
                 return Expr(ft.ret, *[f(*zs) for f in ft.funcs(f)])
+            elif e.data == 'listing':
+                exs = [self.typecheck(e0) for e0 in e.children]
+                ts = [ex.typ for ex in exs]
+                t = tuple_type(ts)
+                zs = [z for ex in exs for z in ex.zs]
+                return Expr(t, *zs)
             else:
                 raise Unimplemented(f'tree {e.data}')
 
@@ -200,6 +206,9 @@ class Session:
                 e, = tname.children
                 ex = self.typecheck_coerce(e, Z, excep=UnexpectedException)
                 return range_type(ex.zs[0])
+            elif tname.data == 'tuple':
+                ts = [self.lookup_type(e) for e in tname.children]
+                return tuple_type(ts)
             else:
                 raise Unimplemented(f'type tree {tname}')
 

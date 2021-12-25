@@ -17,11 +17,9 @@ class Expr:
         
     def eq(self, other, negate=False):
         value = z3.BoolVal(False)
-        if self.typ.interp == None and other.typ.interp == None:
+        if self.typ.interp == other.typ.interp:
             if self.typ.sorts == other.typ.sorts:
                 value = eq_zs(self.zs, other.zs)
-        else:
-            raise Unimplemented(f'Unable to compute equality for type {self.typ}')
 
         if negate:
             value = z3.Not(value)
