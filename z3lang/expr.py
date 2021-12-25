@@ -17,11 +17,8 @@ class Expr:
         
     def eq(self, other, negate=False):
         value = z3.BoolVal(False)
-        if self.typ == B:
-            if other.typ == B:
-                value = eq_zs(self.zs, other.zs)
-        elif self.typ == Z:
-            if other.typ == Z:
+        if self.typ.interp == None and other.typ.interp == None:
+            if self.typ.sorts == other.typ.sorts:
                 value = eq_zs(self.zs, other.zs)
         else:
             raise Unimplemented(f'Unable to compute equality for type {self.typ}')
@@ -29,8 +26,3 @@ class Expr:
         if negate:
             value = z3.Not(value)
         return Expr(B, value)
-
-    def coerce(self, typ):
-        if self.typ == typ:
-            return self
-        raise TypeException(f'Unable to coerce {self.typ} to {typ}')

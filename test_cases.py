@@ -64,9 +64,35 @@ def test_multiple_statements():
     run_script("""
 fn f(x:int) -> int {
     y = -x
-    return x *y
+    return x * y
 }
 
 assert f(3) == -9
 """)
 
+def test_range_ret():
+    run_script("""
+fn f(x:range 3) -> range 3 {
+    return x * x - x
+}
+
+assert f(2) == 2
+""")
+
+def test_out_of_range_ret():
+    with pytest.raises(PostconditionException):
+        run_script("""
+fn f(x:range 3) -> range 2 {
+    return x * x - x
+}
+""")
+
+def test_range_precondition():
+    with pytest.raises(PreconditionException):
+        run_script("""
+    fn f(x:range 3) -> range 3 {
+        return x * x - x
+    }
+
+    assert f(4) == 12
+    """)

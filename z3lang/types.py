@@ -1,34 +1,76 @@
 import z3
 
-class ExactType:
-    def __init__(self, sorts, name):
+def n_varnames(x, n):
+    if n == 0:
+        return []
+    elif n == 1:
+        return [x]
+    else:
+        return [f'{x}.{i}' for i in range(n)]
+
+class Type:
+    def __init__(self, sorts, name, it_restrictions, interp):
         self.sorts = sorts
         self.name = name
+        self.it_restrictions = it_restrictions
+        self.interp = interp
 
     def __repr__(self):
         return self.name
 
     def varnames(self, x):
         n = len(self.sorts)
-        if n == 0:
-            return []
-        elif n == 1:
-            return [x]
-        else:
-            return [f'{x}.{i}' for i in range(n)]
+        return n_varnames(x, n)
+
+    def vars_named(self, names):
+        if len(names) != len(self.sorts):
+            raise UnexpectedException(f'Expecting {len(self.sorts)} names, got {len(names)}')
+        return [z3.Const(names[i], self.sorts[i]) for i in range(len(names))]
 
     def vars(self, x):
         names = self.varnames(x)
-        return [z3.Const(names[i], self.sorts[i]) for i in range(len(names))]
+        return self.vars_named(names)
 
-B = ExactType([z3.BoolSort()], 'bool')
-Z = ExactType([z3.IntSort()], 'int')
+    def zs_restrictions(self, zs):
+        if len(zs) != len(self.sorts):
+            raise UnexpectedException(f'Expected {len(self.sorts)} exprs, got {len(exprs)}')
+        substitutions = list(zip(self.vars('.it'), zs))
+        return [z3.substitute(r, substitutions) for r in self.it_restrictions]
+
+    def restrictions(self, name):
+        return self.zs_restrictions(self.vars(name))
+
+B = Type([z3.BoolSort()], 'bool', [], None)
+Z = Type([z3.IntSort()], 'int', [], None)
+
+def range_type(upper):
+    return Type([z3.IntSort()], f'range {upper}', [z3.Int('.it') >= 0, z3.Int('.it') < upper], None)
+
+class TupleInterp:
+    def __init__(self, interps):
+        self.interps = interps
+
+    def __eq__(self, other):
+        return isinstance(other, TupleInterp) and self.interps == other.interps
+
+def tuple_type(ts):
+    name = '(' + ','.join((t.name for t in ts)) + ')'
+    interp = TupleInterp([t.interp for t in ts])
+    sorts = []
+    restrictions = []
+    n = sum((len(t.sorts) for t in ts))
+    our_varnames = n_varnames('.it', n)
+    count = 0
+    for t in ts:
+        sorts += t.sorts
+        restrictions += t.zs_restrictions(t.vars_named(our_varnames[count:count+i]))
+        count += len(t.sorts)
+    return Type(sorts, name, restrictions, interp)
 
 class Arg:
-    def __init__(self, name, typ, restrictions):
+    def __init__(self, name, typ):
         self.name = name
         self.typ = typ
-        self.restrictions = restrictions
 
     def vars(self):
         return self.typ.vars(self.name)
@@ -37,18 +79,11 @@ class Arg:
         from z3lang.expr import Expr
         return Expr(self.typ, *self.vars())
 
+    def restrictions(self):
+        return self.typ.restrictions(self.name)
+
     def __repr__(self):
-        return f'{self.name}:{self.typ} {self.restrictions}'
-
-def bool_arg(name):
-    return Arg(name, B, [])
-
-def int_arg(name):
-    return Arg(name, Z, [])
-
-def range_arg(name, upper):
-    return Arg(name, Z, [z3.Int(name) >= 0, z3.Int(name) < upper])
-
+        return f'{self.name}:{self.typ}'
 
 class Func:
     def __init__(self, args, ret):
@@ -64,24 +99,19 @@ class Func:
 
     def funcs(self, f):
         result = []
-        for name,sort in zip(self.ret.typ.varnames(f), self.ret.typ.sorts):
+        for name,sort in zip(self.ret.varnames(f), self.ret.sorts):
             result.append(self.func(name, sort))
         return result
 
     def preconditions(self):
         result = []
         for arg in self.args:
-            for restriction in arg.restrictions:
+            for restriction in arg.restrictions():
                 result.append(restriction)
         return result
 
     def postconditions(self, retval):
-        result = []
-        vs = retval.typ.vars('.ret')
-        substitutions = [(vs[i], retval.zs[i]) for i in range(len(vs))]
-        for restriction in self.ret.restrictions:
-            result.append(z3.substitute(restriction, substitutions))
-        return result
+        return self.ret.zs_restrictions(retval.zs)
 
     def __repr__(self):
         return f'{self.args} -> {self.ret}'

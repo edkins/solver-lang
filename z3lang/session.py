@@ -15,6 +15,12 @@ class StackFrame:
         self.equations = []
         self.substitutions = []
 
+def int_arg(name):
+    return Arg(name, Z)
+
+def bool_arg(name):
+    return Arg(name, B)
+
 class Session:
     def __init__(self, output):
         self.output = output
@@ -22,15 +28,34 @@ class Session:
         self.solver = z3.Solver()
         self.stack = []
         self.builtins = {
-            'lt': (Func([int_arg('a'), int_arg('b')], bool_arg('.ret')), lambda a,b:a<b),
-            'le': (Func([int_arg('a'), int_arg('b')], bool_arg('.ret')), lambda a,b:a<=b),
-            'gt': (Func([int_arg('a'), int_arg('b')], bool_arg('.ret')), lambda a,b:a>b),
-            'ge': (Func([int_arg('a'), int_arg('b')], bool_arg('.ret')), lambda a,b:a>=b),
-            'add': (Func([int_arg('a'), int_arg('b')], int_arg('.ret')), lambda a,b:a+b),
-            'sub': (Func([int_arg('a'), int_arg('b')], int_arg('.ret')), lambda a,b:a-b),
-            'mul': (Func([int_arg('a'), int_arg('b')], int_arg('.ret')), lambda a,b:a*b),
-            'neg': (Func([int_arg('a')], int_arg('.ret')), lambda a:-a),
+            'lt': (Func([int_arg('a'), int_arg('b')], B), lambda a,b:a<b),
+            'le': (Func([int_arg('a'), int_arg('b')], B), lambda a,b:a<=b),
+            'gt': (Func([int_arg('a'), int_arg('b')], B), lambda a,b:a>b),
+            'ge': (Func([int_arg('a'), int_arg('b')], B), lambda a,b:a>=b),
+            'add': (Func([int_arg('a'), int_arg('b')], Z), lambda a,b:a+b),
+            'sub': (Func([int_arg('a'), int_arg('b')], Z), lambda a,b:a-b),
+            'mul': (Func([int_arg('a'), int_arg('b')], Z), lambda a,b:a*b),
+            'neg': (Func([int_arg('a')], Z), lambda a:-a),
         }
+
+    def typecheck_coerce(self, e, typ, excep):
+        ex = self.typecheck(e)
+        if ex.typ.sorts != typ.sorts:
+            raise TypeException(f'Sort mismatch: {ex.typ.sorts} vs {typ.sorts}')
+        if ex.typ.interp != typ.interp:
+            raise TypeException(f'Interp mismatch: {ex.interp} vs {typ.interp}')
+
+        if excep != None:
+            for restriction in typ.zs_restrictions(ex.zs):
+                self.solver.push()
+                try:
+                    self.solver.add(z3.Not(restriction))
+                    if self.solver.chec() == z3.sat:
+                        print(self.solver.model())
+                        raise excep()
+                finally:
+                    self.solver.pop()
+        return ex
 
     def typecheck(self, e):
         if isinstance(e, lark.Token):
@@ -63,7 +88,7 @@ class Session:
                 xs = e.children
                 ft,pyfunc = self.builtins[e.data]
                 zs = self.func_zs(ft, xs)
-                return Expr(ft.ret.typ, pyfunc(*zs))
+                return Expr(ft.ret, pyfunc(*zs))
             elif e.data == 'call':
                 f = e.children[0]
                 xs = e.children[1:]
@@ -71,7 +96,7 @@ class Session:
                     raise FuncNotDefined(f)
                 ft = self.env[f]
                 zs = self.func_zs(ft, xs)
-                return Expr(ft.ret.typ, *[f(*zs) for f in ft.funcs(f)])
+                return Expr(ft.ret, *[f(*zs) for f in ft.funcs(f)])
             else:
                 raise Unimplemented(f'tree {e.data}')
 
@@ -84,7 +109,7 @@ class Session:
         substitutions = []
         for e,arg in zip(xs, ft.args):
             vs = arg.vars()
-            ex = self.typecheck(e).coerce(arg.typ)
+            ex = self.typecheck_coerce(e, arg.typ, excep=None)
             if len(vs) != len(ex.zs):
                 raise UnexpectedException(f'Length of arg vars = {len(vs)}, length of expression zs = {len(ex.zs)}')
             for v,z in zip(vs, ex.zs):
@@ -130,7 +155,7 @@ class Session:
         if len(self.stack) == 0:
             raise NotInFunction()
 
-        ex = self.typecheck(e).coerce(self.stack[-1].functype.ret.typ)
+        ex = self.typecheck_coerce(e, self.stack[-1].functype.ret, excep=None)
         for postcondition in self.stack[-1].functype.postconditions(ex):
             self.check_postcondition(postcondition)
 
@@ -162,19 +187,19 @@ class Session:
             raise NotInFunction()
         return z3.substitute(z, self.stack[-1].substitutions)
 
-    def lookup_type(self, tname, argname):
+    def lookup_type(self, tname):
         if isinstance(tname, lark.Token):
             if tname.type == 'Z':
-                return int_arg(argname)
+                return Z
             elif tname.type == 'B':
-                return bool_arg(argname)
+                return B
             else:
                 raise Unimplemented(f'type token {tname}')
         elif isinstance(tname, lark.Tree):
             if tname.data == 'range':
                 e, = tname.children
-                ex = self.typecheck(e).coerce(Z)
-                return range_arg(argname, ex.zs[0])
+                ex = self.typecheck_coerce(e, Z, excep=UnexpectedException)
+                return range_type(ex.zs[0])
             else:
                 raise Unimplemented(f'type tree {tname}')
 
@@ -182,11 +207,11 @@ class Session:
         if arg.name in self.env:
             raise VarAlreadyDefined(x)
         self.env[arg.name] = arg.expr()
-        for item in arg.restrictions:
+        for item in arg.restrictions():
             self.solver.add(item)
 
     def assertion(self, e):
-        ex = self.typecheck(e).coerce(B)
+        ex = self.typecheck_coerce(e, B, excep=UnexpectedException)
         self.solver.push()
         try:
             self.solver.add(z3.Not(ex.zs[0]))
@@ -230,11 +255,11 @@ class Session:
 
         self.solver.push()
         try:
-            r = self.lookup_type(ret, '.ret')
+            r = self.lookup_type(ret)
             self.stack.append(StackFrame(dict(self.env), f, Func([], r)))
             for arg in args:
                 xtoken, tname = arg.children
-                arg = self.lookup_type(tname, xtoken.value)
+                arg = Arg(xtoken.value, self.lookup_type(tname))
                 self.stack[-1].functype.args.append(arg)
                 self.assign_arg(arg)
 

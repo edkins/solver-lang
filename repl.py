@@ -1,11 +1,12 @@
 import readline
+import sys
 import traceback
 from z3lang.session import Session
 from z3lang.errors import Mistake
 
 def main():
     global grammar
-    session = Session()
+    session = Session(sys.stdout)
     while True:
         text = input(session.prompt())
         try:
