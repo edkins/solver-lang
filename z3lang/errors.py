@@ -7,6 +7,9 @@ class TypeException(Mistake):
 class AssertionException(Mistake):
     pass
 
+class ReachabilityException(Mistake):
+    pass
+
 class PreconditionException(Mistake):
     pass
 

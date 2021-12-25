@@ -1,3 +1,4 @@
+import io
 import lark
 import z3
 from z3lang.errors import *
@@ -15,7 +16,8 @@ class StackFrame:
         self.substitutions = []
 
 class Session:
-    def __init__(self):
+    def __init__(self, output):
+        self.output = output
         self.env = {}
         self.solver = z3.Solver()
         self.stack = []
@@ -216,6 +218,12 @@ class Session:
         else:
             print('unreachable')
 
+    def unreachable(self):
+        if self.solver.check() == z3.sat:
+            raise ReachabilityException()
+        else:
+            print('ok')
+
     def pushfn(self, f, args, ret):
         if f in self.env:
             raise VarAlreadyDefined(f)
@@ -257,7 +265,7 @@ class Session:
 
     def sample(self, e):
         ex = self.typecheck(e)
-        print(f'Type: {ex.typ}')
+        self.output.write(f'Type: {ex.typ}\n')
         maximum = 21
         values, mystery = self.get_possible_values(ex, maximum)
         string = '{'
@@ -267,7 +275,8 @@ class Session:
         elif len(values) == maximum:
             string += '...'
         string += '}'
-        print(string)
+        self.output.write(string)
+        self.output.write('\n')
 
     def pop(self):
         if len(self.stack) == 0:
@@ -296,6 +305,8 @@ class Session:
         elif ast.data == 'assertion':
             e, = ast.children
             self.assertion(e)
+        elif ast.data == 'unreachable':
+            self.unreachable()
         elif ast.data == 'pushfn':
             f = ast.children[0].value
             args = ast.children[1:-1]
@@ -326,3 +337,11 @@ class Session:
         stack = ''.join((f'{s.name} ' for s in self.stack))
         return f'{stack}>> '
 
+def run_script(script):
+    with io.StringIO() as output:
+        session = Session(output)
+        for text in script.split('\n'):
+            stripped = text.strip()
+            if stripped != '':
+                session.parse_and_process(stripped)
+        return output.getvalue()
