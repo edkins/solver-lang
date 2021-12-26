@@ -4,16 +4,13 @@ from z3lang.types import *
 from z3lang.misc import eq_zs, and_zs
 
 class Expr:
-    def __init__(self, typ, *zs):
-        sorts = typ.sorts
-        if len(sorts) != len(zs):
-            raise UnexpectedException(f'Element count mismatch in Expr.__init__ {len(sorts)} vs {len(zs)}')
-        for sort,z in zip(sorts,zs):
-            if z.sort() != sort:
-                raise UnexpectedException(f'Sort mismatch in Expr.__init__ {z.sort()} vs {sort}')
+    def __init__(self, typ, z):
+        sort = typ.sort()
+        if z.sort() != sort:
+            raise UnexpectedException(f'Sort mismatch in Expr.__init__ {z.sort()} vs {sort}')
 
         self.typ = typ
-        self.zs = zs
+        self.z = z
         
     def eq(self, other, negate=False):
         value = z3.BoolVal(False)

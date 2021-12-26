@@ -1,95 +1,128 @@
 import z3
 
-def n_varnames(x, n):
-    if n == 0:
-        return []
-    elif n == 1:
-        return [x]
-    else:
-        return [f'{x}.{i}' for i in range(n)]
-
-class Type:
-    def __init__(self, sorts, name, it_restrictions, interp):
-        self.sorts = sorts
-        self.name = name
-        self.it_restrictions = it_restrictions
-        self.interp = interp
-
-    def __repr__(self):
-        return self.name
-
-    def varnames(self, x):
-        n = len(self.sorts)
-        return n_varnames(x, n)
-
-    def vars_named(self, names):
-        if len(names) != len(self.sorts):
-            raise UnexpectedException(f'Expecting {len(self.sorts)} names, got {len(names)}')
-        return [z3.Const(names[i], self.sorts[i]) for i in range(len(names))]
-
-    def vars(self, x):
-        names = self.varnames(x)
-        return self.vars_named(names)
-
-    def zs_restrictions(self, zs):
-        if len(zs) != len(self.sorts):
-            raise UnexpectedException(f'Expected {len(self.sorts)} exprs, got {len(exprs)}')
-        substitutions = list(zip(self.vars('.it'), zs))
-        return [z3.substitute(r, substitutions) for r in self.it_restrictions]
+class BaseType:
+    def var(self, x):
+        return z3.Const(x, self.sort())
 
     def restrictions(self, name):
-        return self.zs_restrictions(self.vars(name))
+        return self.z_restrictions(self.var(name))
 
-B = Type([z3.BoolSort()], 'bool', [], None)
-Z = Type([z3.IntSort()], 'int', [], None)
+class BoolType(BaseType):
+    def __repr__(self):
+        return 'B'
+
+    def sort(self):
+        return z3.BoolSort()
+
+    def z_restrictions(self, z):
+        return []
+
+    def next_restriction_var(self):
+        return 0
+
+    def might_be(self, kind):
+        return kind == 'bool'
+
+class IntType(BaseType):
+    def __repr__(self):
+        return 'Z'
+
+    def sort(self):
+        return z3.IntSort()
+
+    def z_restrictions(self, z):
+        return []
+
+    def next_restriction_var(self):
+        return 0
+
+    def might_be(self, kind):
+        return kind == 'int'
+
+class RestrictedType(BaseType):
+    def __init__(self, underlying, it_restrictions, next_var):
+        self.underlying = underlying
+        self.it_restrictions = it_restrictions
+        self.next_var = next_var
+
+    def __repr__(self):
+        return f'{self.underlying} {self.it_restrictions}'
+
+    def sort(self):
+        return self.underlying.sort()
+
+    def z_restrictions(self, z):
+        restrictions = list(self.underlying.z_restrictions(z))
+        substitutions = [self.var('.it'), z]
+        for r in self.it_restrictions:
+            restrictions.append(z3.substitute(r, substitute))
+        return restrictions
+
+    def next_restriction_var(self):
+        return self.next_var
+
+    def might_be(self, kind):
+        return self.underlying.might_be(kind)
+
+class TupleType(BaseType):
+    def __init__(self, members):
+        self.members = members
+
+    def __repr__(self):
+        return 'tuple[' + ','.join((str(m) for m in self.members)) + ']'
+
+    def sort(self):
+        return z3.TupleSort(str(self), [m.sort() for m in self.members])
+
+    def z_restrictions(self, z):
+        restrictions = []
+        sort = self.sort()
+        for i in range(len(self.members)):
+            restrictions += self.members[i].z_restrictions(sort.accessor(0,i)(z))
+        return restrictions
+
+    def next_restriction_var(self):
+        return max((m.next_restriction_var() for m in self.members))
+
+    def might_be(self, kind):
+        return kind == 'listing'
+
+class ArrayType(BaseType):
+    def __init__(self, element):
+        self.element = element
+
+    def __repr__(self):
+        return f'array {self.element}'
+
+    def sort(self):
+        return z3.SeqSort(self.element.sort())
+
+    def z_restrictions(self, z):
+        x = z3.Var(self.element.next_restriction_var(), IntSort())
+        restrictions = []
+        for r in self.element.z_restrictions(z[x]):
+            restrictions.add(z3.ForAll([x], z3.Implies(z3.And(x >= 0, x < z3.Length(z)), r)))
+        return restrictions
+
+    def next_restriction_var(self):
+        return self.element.next_restriction_var() + 1
+
+    def might_be(self, kind):
+        return kind == 'listing'
+
+B = BoolType()
+Z = IntType()
 
 def range_type(upper):
-    return Type([z3.IntSort()], f'range {upper}', [z3.Int('.it') >= 0, z3.Int('.it') < upper], None)
-
-class TupleInterp:
-    def __init__(self, interps):
-        self.interps = interps
-
-    def __eq__(self, other):
-        return isinstance(other, TupleInterp) and self.interps == other.interps
-
-def tuple_type(ts):
-    name = 'tuple[' + ','.join((t.name for t in ts)) + ']'
-    interp = TupleInterp([t.interp for t in ts])
-    sorts = []
-    restrictions = []
-    n = sum((len(t.sorts) for t in ts))
-    our_varnames = n_varnames('.it', n)
-    count = 0
-    for t in ts:
-        sorts += t.sorts
-        restrictions += t.zs_restrictions(t.vars_named(our_varnames[count:count+len(t.sorts)]))
-        count += len(t.sorts)
-
-    tuple_sort = z3.TupleSort(name, sorts)[0]
-    return Type([tuple_sort], name, restrictions, interp)
-
-class ArrayInterp:
-    def __init__(self, basis_sort):
-        self.basis_sort = basis_sort
-
-    def __eq__(self, other):
-        return isinstance(other, ArrayInterp) and self.basis_sort == other.basis_sort
-
-def array_type(t):
-    if len(t.sorts) != 1:
-        raise Unimplemented('Can only construct arrays of things with 1 sort')
-    if len(t.it_restrictions) != 0:
-        raise Unimplemented('Cannot currently construct arrays on things with restrictions')
-    return Type([z3.SeqSort(t.sorts[0])], f'array {t}', [], ArrayInterp(t.sorts[0]))
+    return RestrictedType(Z, [z3.Int('.it') >= 0, z3.Int('.it') < upper])
 
 class Arg:
     def __init__(self, name, typ):
         self.name = name
         self.typ = typ
 
-    def vars(self):
-        return self.typ.vars(self.name)
+    def var(self):
+        return self.typ.var(self.name)
 
     def expr(self):
         from z3lang.expr import Expr

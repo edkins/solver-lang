@@ -40,6 +40,11 @@ class Session:
 
     def typecheck_coerce(self, e, typ, excep):
         ex0 = self.typecheck(e)
+
+        alternatives = []
+        for kind in ['bool','int','listing']:
+            if ex0.typ.might_be(kind) and typ.might_be(kind):
+                alternatives.append(xxxx)
         if ex0.typ.sorts == typ.sorts and ex0.typ.interp == typ.interp:
             ex = ex0
         elif isinstance(ex0.typ.interp, TupleInterp) and isinstance(typ.interp, ArrayInterp):
@@ -122,13 +127,10 @@ class Session:
         zs = []
         substitutions = []
         for e,arg in zip(xs, ft.args):
-            vs = arg.vars()
+            v = arg.var()
             ex = self.typecheck_coerce(e, arg.typ, excep=None)
-            if len(vs) != len(ex.zs):
-                raise UnexpectedException(f'Length of arg vars = {len(vs)}, length of expression zs = {len(ex.zs)}')
-            for v,z in zip(vs, ex.zs):
-                zs.append(z)
-                substitutions.append((v,z))
+            zs.append(ex.z)
+            substitutions.append((v,ex.z))
         for pre in ft.preconditions():
             self.check_precondition(pre, substitutions)
         return zs
