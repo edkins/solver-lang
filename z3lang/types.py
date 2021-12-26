@@ -65,7 +65,16 @@ def tuple_type(ts):
         sorts += t.sorts
         restrictions += t.zs_restrictions(t.vars_named(our_varnames[count:count+len(t.sorts)]))
         count += len(t.sorts)
-    return Type(sorts, name, restrictions, interp)
+
+    tuple_sort = z3.TupleSort(name, sorts)[0]
+    return Type([tuple_sort], name, restrictions, interp)
+
+def array_type(t):
+    if len(t.sorts) != 1:
+        raise Unimplemented('Can only construct arrays of things with 1 sort')
+    if len(t.it_restrictions) != 0:
+        raise Unimplemented('Cannot currently construct arrays on things with restrictions')
+    return Type([z3.SeqSort(t.sorts[0])], f'array {t}', [], None)
 
 class Arg:
     def __init__(self, name, typ):

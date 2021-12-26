@@ -101,8 +101,9 @@ class Session:
                 exs = [self.typecheck(e0) for e0 in e.children]
                 ts = [ex.typ for ex in exs]
                 t = tuple_type(ts)
-                zs = [z for ex in exs for z in ex.zs]
-                return Expr(t, *zs)
+                constructor = t.sorts[0].constructor(0)
+                z = constructor(*[z for ex in exs for z in ex.zs])
+                return Expr(t, z)
             else:
                 raise Unimplemented(f'tree {e.data}')
 
@@ -209,6 +210,9 @@ class Session:
             elif tname.data == 'tuple':
                 ts = [self.lookup_type(e) for e in tname.children]
                 return tuple_type(ts)
+            elif tname.data == 'array':
+                t = self.lookup_type(tname.children[0])
+                return array_type(t)
             else:
                 raise Unimplemented(f'type tree {tname}')
 

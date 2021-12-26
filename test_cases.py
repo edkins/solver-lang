@@ -118,3 +118,11 @@ fn combine(x:int, y:bool) -> tuple[int,bool] {
 assert combine(4,true) == [4,true]
 """)
 
+def test_array_ret():
+    run_script("""
+fn combine(x:int, y:int) -> array int {
+    return [x,y]
+}
+assert combine(4,5) == [4,5]
+""")
+

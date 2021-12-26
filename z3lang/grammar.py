@@ -35,9 +35,13 @@ arg: CNAME ":" type
       | B
       | range
       | tuple
+      | array
+      | vec
 
 range: "range" expr
 tuple: "tuple" "[" typecomma* type? "]"
+array: "array" type
+vec: "vec" type expr
 
 ?typecomma: type ","
 
