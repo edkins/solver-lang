@@ -124,5 +124,6 @@ fn combine(x:int, y:int) -> array int {
     return [x,y]
 }
 assert combine(4,5) == [4,5]
+assert [4,5] == combine(4,5)
 """)
 

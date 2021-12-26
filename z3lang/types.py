@@ -69,12 +69,19 @@ def tuple_type(ts):
     tuple_sort = z3.TupleSort(name, sorts)[0]
     return Type([tuple_sort], name, restrictions, interp)
 
+class ArrayInterp:
+    def __init__(self, basis_sort):
+        self.basis_sort = basis_sort
+
+    def __eq__(self, other):
+        return isinstance(other, ArrayInterp) and self.basis_sort == other.basis_sort
+
 def array_type(t):
     if len(t.sorts) != 1:
         raise Unimplemented('Can only construct arrays of things with 1 sort')
     if len(t.it_restrictions) != 0:
         raise Unimplemented('Cannot currently construct arrays on things with restrictions')
-    return Type([z3.SeqSort(t.sorts[0])], f'array {t}', [], None)
+    return Type([z3.SeqSort(t.sorts[0])], f'array {t}', [], ArrayInterp(t.sorts[0]))
 
 class Arg:
     def __init__(self, name, typ):

@@ -4,7 +4,7 @@ import z3
 from z3lang.errors import *
 from z3lang.expr import Expr
 from z3lang.grammar import grammar
-from z3lang.misc import or_zs
+from z3lang.misc import or_zs, sequence_zs
 from z3lang.types import *
 
 class StackFrame:
@@ -39,11 +39,18 @@ class Session:
         }
 
     def typecheck_coerce(self, e, typ, excep):
-        ex = self.typecheck(e)
-        if ex.typ.sorts != typ.sorts:
-            raise TypeException(f'Sort mismatch: {ex.typ.sorts} vs {typ.sorts}')
-        if ex.typ.interp != typ.interp:
-            raise TypeException(f'Interp mismatch: {ex.interp} vs {typ.interp}')
+        ex0 = self.typecheck(e)
+        if ex0.typ.sorts == typ.sorts and ex0.typ.interp == typ.interp:
+            ex = ex0
+        elif isinstance(ex0.typ.interp, TupleInterp) and isinstance(typ.interp, ArrayInterp):
+            z0 = ex0.zs[0]
+            n = len(ex0.typ.interp.interps)
+            sort = ex0.typ.sorts[0]
+            zs = [sort.accessor(0,i)(z0) for i in range(n)]
+            z = sequence_zs(typ.interp.basis_sort, zs)
+            ex = Expr(typ, z)
+        else:
+            raise TypeException(f'Cannot coerce from type {ex0.typ} to {typ}')
 
         if excep != None:
             for restriction in typ.zs_restrictions(ex.zs):
