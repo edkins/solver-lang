@@ -37,10 +37,10 @@ class Session:
             'mul': (Func([int_arg('a'), int_arg('b')], Z), lambda a,b:a*b),
             'neg': (Func([int_arg('a')], Z), lambda a:-a),
         }
-        self.solver.add(length_func(CommonSort.list(CommonListSort.empty)) == 0)
-        x = z3.Const('.x', CommonSort)
-        xs = z3.Const('.xs', CommonListSort)
-        self.solver.add(z3.ForAll([x,xs], length_func(CommonSort.list(CommonListSort.cons(x,xs))) == length_func(CommonSort.list(xs)) + 1))
+        #self.solver.add(length_func(CommonSort.list(CommonListSort.empty)) == 0)
+        #x = z3.Const('.x', CommonSort)
+        #xs = z3.Const('.xs', CommonListSort)
+        #self.solver.add(z3.ForAll([x,xs], length_func(CommonSort.list(CommonListSort.cons(x,xs))) == length_func(CommonSort.list(xs)) + 1))
 
     def typecheck_coerce(self, e, typ, substitutions, excep):
         ex0 = self.typecheck(e)
