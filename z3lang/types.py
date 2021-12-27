@@ -1,5 +1,5 @@
 import z3
-from z3lang.misc import and_zs
+from z3lang.misc import and_zs, sequence_zs
 
 class BaseType:
     def var(self, x):
@@ -191,10 +191,10 @@ def equality(z0, z1):
         return and_zs([equality(z0.sort().accessor(0,i)(z0), z1.sort().accessor(0,i)(z1)) for i in range(arity0)])
 
     if arity0 != None and isinstance(z1.sort(), z3.SeqSortRef):
-        return and_zs([z3.Length(z1) == arity0] + [equality(z0.sort().accessor(0,i)(z0), z1[i]) for i in range(arity0)])
+        return sequence_zs(z1.sort().basis(), [z0.sort().accessor(0,i)(z0) for i in range(arity0)]) == z1
 
     if isinstance(z0.sort(), z3.SeqSortRef) and arity1 != None:
-        return and_zs([z3.Length(z0) == arity1] + [equality(z0[i], z1.sort().accessor(0,i)(z1)) for i in range(arity1)])
+        return z0 == sequence_zs(z0.sort().basis(), [z1.sort().accessor(0,i)(z1) for i in range(arity1)])
 
     return z3.BoolVal(False)
 
