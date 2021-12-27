@@ -12,15 +12,15 @@ class Expr:
         self.typ = typ
         self.z = z
 
-    def to_common_z(self):
-        return self.typ.to_common(self.z)
-
     def eq(self, other, negate=False):
+        newtype = intersect(self.typ, other.typ)
+        z = equality(self.z, other.z)
         if negate:
-            return Expr(B, self.to_common_z() != other.to_common_z())
+            return Expr(B, z3.Not(z))
         else:
-            return Expr(B, self.to_common_z() == other.to_common_z())
+            return Expr(B, z)
 
     def coerce_restrictions(self, typ):
-        z, restrictions = typ.from_common(self.typ.to_common(self.z))
-        return Expr(typ, z), restrictions
+        newtype = intersect(self.typ, typ)
+        restrictions = newtype.z_restrictions(self.z)
+        return Expr(newtype, self.z), restrictions

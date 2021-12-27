@@ -37,10 +37,6 @@ class Session:
             'mul': (Func([int_arg('a'), int_arg('b')], Z), lambda a,b:a*b),
             'neg': (Func([int_arg('a')], Z), lambda a:-a),
         }
-        #self.solver.add(length_func(CommonSort.list(CommonListSort.empty)) == 0)
-        #x = z3.Const('.x', CommonSort)
-        #xs = z3.Const('.xs', CommonListSort)
-        #self.solver.add(z3.ForAll([x,xs], length_func(CommonSort.list(CommonListSort.cons(x,xs))) == length_func(CommonSort.list(xs)) + 1))
 
     def typecheck_coerce(self, e, typ, substitutions, excep):
         ex0 = self.typecheck(e)
@@ -101,8 +97,8 @@ class Session:
             elif e.data == 'listing':
                 exs = [self.typecheck(e0) for e0 in e.children]
                 ts = [ex.typ for ex in exs]
-                t = TupleType(ts)
-                z = listing_zs([ex.to_common_z() for ex in exs])
+                t = tuple_type(ts)
+                z = t.listing([ex.z for ex in exs])
                 return Expr(t, z)
             else:
                 raise Unimplemented(f'tree {e.data}')
@@ -149,7 +145,7 @@ class Session:
         ex = self.typecheck(e)
         v = ex.typ.var(x)
         self.env[x] = Expr(ex.typ, v)
-        self.solver.add(v == ex.z)
+        self.solver.add(equality(v, ex.z))
         func_name = '.'.join([s.name for s in self.stack] + [x])
         if len(self.stack) > 0:
             xcall = self.add_equation(func_name, ex.z)
@@ -176,9 +172,9 @@ class Session:
         func = self.stack[-1].functype.func(func_name)
         func_with_vars = func(*var_list)
         if len(var_list) > 0:
-            eq = z3.ForAll(var_list, func_with_vars == z)
+            eq = z3.ForAll(var_list, equality(func_with_vars, z))
         else:
-            eq = func_with_vars == z
+            eq = equality(func_with_vars, z)
         self.stack[-1].equations.append(eq)
         return func_with_vars
 
@@ -202,10 +198,10 @@ class Session:
                 return range_type(ex.z)
             elif tname.data == 'tuple':
                 ts = [self.lookup_type(e) for e in tname.children]
-                return TupleType(ts)
+                return tuple_type(ts)
             elif tname.data == 'array':
                 t = self.lookup_type(tname.children[0])
-                return ArrayType(t)
+                return array_type(t)
             else:
                 raise Unimplemented(f'type tree {tname}')
 
@@ -277,7 +273,7 @@ class Session:
         self.solver.push()
         try:
             var = expr.typ.var('.result')
-            self.solver.add(var == expr.z)
+            self.solver.add(equality(var, expr.z))
             result = []
             for i in range(maximum):
                 if self.solver.check() == z3.sat:
