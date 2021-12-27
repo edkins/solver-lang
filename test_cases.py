@@ -19,7 +19,7 @@ fn square(x:int) -> int {
 
 square(-2)
 """) == """Type: int
-{[4]}
+{4}
 """
 
 
@@ -127,3 +127,9 @@ assert combine(4,5) == [4,5]
 assert [4,5] == combine(4,5)
 """)
 
+def test_no_return():
+    with pytest.raises(IncompleteFunctionException):
+        run_script("""
+fn f() -> int {
+}
+""")

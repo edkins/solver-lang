@@ -31,6 +31,9 @@ class NotAFunction(Mistake):
 class IsAFunction(Mistake):
     pass
 
+class IncompleteFunctionException(Mistake):
+    pass
+
 class ArgCountMismatch(Mistake):
     pass
 
