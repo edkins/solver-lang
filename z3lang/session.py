@@ -39,11 +39,14 @@ class Session:
             'neg': (Func([int_arg('a')], Z), lambda a:-a),
         }
 
-    def typecheck_coerce(self, e, typ, substitutions, excep):
+    def typecheck_coerce(self, e, typ, substitutions=[], excep=TypeException):
         ex0 = self.typecheck(e)
 
         ex, restrictions = ex0.coerce_restrictions(typ)
+        self.check_restrictions(restrictions, substitutions, excep)
+        return ex
 
+    def check_restrictions(self, restrictions, substitutions=[], excep=TypeException):
         for restriction in restrictions:
             self.solver.push()
             try:
@@ -53,7 +56,6 @@ class Session:
                     raise excep()
             finally:
                 self.solver.pop()
-        return ex
 
     def typecheck(self, e):
         if isinstance(e, lark.Token):
@@ -101,6 +103,19 @@ class Session:
                 t = tuple_type(ts)
                 z = t.listing([ex.z for ex in exs])
                 return Expr(t, z)
+            elif e.data == 'len':
+                e0, = e.children
+                listing = self.typecheck(e0)
+                result, restrictions = listing.len_restrictions()
+                self.check_restrictions(restrictions)
+                return result
+            elif e.data == 'lookup':
+                e0, e1 = e.children
+                listing = self.typecheck(e0)
+                index = self.typecheck_coerce(e1, Z)
+                result, restrictions = listing.lookup_restrictions(index)
+                self.check_restrictions(restrictions)
+                return result
             else:
                 raise Unimplemented(f'tree {e.data}')
 

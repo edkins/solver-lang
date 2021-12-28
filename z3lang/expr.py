@@ -27,3 +27,17 @@ class Expr:
     def coerce_restrictions(self, typ):
         z, restrictions = typ.coerce_restrictions(self.z)
         return Expr(typ, z), restrictions
+
+    def len_restrictions(self):
+        if self.z.sort() != self.typ.sort():
+            raise UnexpectedException()
+        z, restrictions = self.typ.len_restrictions(self.z)
+        return Expr(Z, z), restrictions
+
+    def lookup_restrictions(self, index):
+        if self.z.sort() != self.typ.sort():
+            raise UnexpectedException()
+        if index.typ.sort() != z3.IntSort():
+            raise UnexpectedException()
+        z, typ, restrictions = self.typ.lookup_type_restrictions(self.z, index.z)
+        return Expr(typ, z), restrictions

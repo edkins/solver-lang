@@ -68,20 +68,27 @@ ne: aexpr "!=" aexpr
 add: aexpr "+" mexpr
 sub: aexpr "-" mexpr
 
-?mexpr: term
+?mexpr: lexpr
         | mul
 
-mul: term "*" mexpr
+mul: lexpr "*" mexpr
+
+?lexpr: term
+      | lookup
+
+lookup: term "[" expr "]"
 
 ?term: INT
      | TRUE
      | FALSE
+     | len
      | call
      | CNAME
      | "(" expr ")"
      | listing
      | neg
 
+len: "len" lexpr
 call: CNAME "(" exprcomma* expr? ")"
 ?exprcomma: expr ","
 

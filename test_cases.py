@@ -186,3 +186,17 @@ assert array_array(int_tuple(0)) == array_array(int_tuple(0))
 assert array_array(int_tuple(0)) == array_array(int_array(0))
 """)
 
+def test_tuple_fixed_index():
+    run_script("""
+assert [1,false][0] == 1
+assert [1,false][1] == false
+""")
+
+def test_tuple_var_index():
+    run_script("""
+fn f(i:range 3) -> int {
+    assert [1,2,3][i] < 4
+    return i
+}
+""")
+

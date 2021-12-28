@@ -1,6 +1,6 @@
 import z3
 from z3lang.misc import and_zs, sequence_zs
-from z3lang.errors import TypeException, UnexpectedException
+from z3lang.errors import *
 
 class BaseType:
     def var(self, x):
@@ -16,6 +16,14 @@ class BaseType:
         if self.sort() == z.sort():
             result = z
         return result, restrictions
+
+    # Overridden
+    def len_restrictions(self, z):
+        raise TypeException(f'{self} has no len')
+
+    # Overridden
+    def lookup_type_restrictions(self, z, index):
+        raise TypeException(f'{self} cannot be indexed')
 
 class ImpossibleType(BaseType):
     def __repr__(self):
@@ -92,6 +100,12 @@ class RestrictedType(BaseType):
     def _accepts_sort(self, sort):
         return self.underlying._accepts_sort(sort)
 
+    def len_restrictions(self, z):
+        return self.underlying.len_restrictions(z)
+
+    def lookup_type_restrictions(self, z, index):
+        return self.underlying.lookup_type_restrictions(z, index)
+
 def get_tuple_sort_arity(sort):
     if isinstance(sort, z3.DatatypeSortRef) and sort.num_constructors() == 1:
         return sort.constructor(0).arity()
@@ -152,6 +166,20 @@ class TupleType(BaseType):
         else:
             return False
 
+    def len_restrictions(self, z):
+        return z3.IntVal(len(self.members)), []
+
+    def lookup_type_restrictions(self, z, index):
+        n = len(self.members)
+        if z3.is_int_value(index):
+            i = index.as_long()
+            if i >= 0 and i < n:
+                return z.sort().accessor(0,i)(z), self.members[i], []
+            else:
+                raise PreconditionException(f'Fixed index {i} out of range 0..{n}')
+        else:
+            raise Unimplemented('Currently only implement fixed indexing for tuples')
+
 class ArrayType(BaseType):
     def __init__(self, element):
         self.element = element
@@ -199,6 +227,12 @@ class ArrayType(BaseType):
             return True
         else:
             return False
+
+    def len_restrictions(self, z):
+        return z3.Length(z), []
+
+    def lookup_type_restrictions(self, z, index):
+        return z[index], self.element, [index >= 0, index < z3.Length(z)]
 
 B = BoolType()
 Z = IntType()
