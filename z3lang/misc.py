@@ -30,16 +30,6 @@ def sequence_zs(sort, zs):
     else:
         return z3.Concat(*[z3.Unit(z) for z in zs])
 
-def sort_default(sort):
-    if sort == z3.BoolSort():
-        return z3.BoolVal(False)
-    elif sort == z3.IntSort():
-        return z3.IntVal(0)
-    elif isinstance(sort, z3.DatatypeSortRef):
-        return sort.constructor(0)(*[sort_default(sort.constructor.domain(i)) for i in range(sort.constructor.arity())])
-    elif isinstance(sort, z3.SeqSortRef):
-        return z3.Empty(sort.basis())
-
 def for_all(xs, z):
     if len(xs) == 0:
         return z

@@ -32,14 +32,14 @@ class ImpossibleType(BaseType):
     def sort(self):
         return z3.BoolSort()
 
-    def sort_default(self):
-        return z3.BoolVal(False)
-
     def _coerce_restrictions(self, z):
         raise UnexpectedException('Unreachable for ImpossibleType')
 
     def _accepts_sort(self, sort):
         return False
+
+    def _is_subtype_of(self, t):
+        return True
 
 class BoolType(BaseType):
     def __repr__(self):
@@ -48,14 +48,14 @@ class BoolType(BaseType):
     def sort(self):
         return z3.BoolSort()
 
-    def sort_default(self):
-        return z3.BoolVal(False)
-
     def _coerce_restrictions(self, z):
         return z, []
 
     def _accepts_sort(self, sort):
         return sort == z3.BoolSort()
+
+    def _is_subtype_of(self, t):
+        return isinstance(t, BoolType) or (isinstance(t, UnionType) and any((isinstance(o, BoolType) for o in t.options)))
 
 class IntType(BaseType):
     def __repr__(self):
@@ -64,14 +64,14 @@ class IntType(BaseType):
     def sort(self):
         return z3.IntSort()
 
-    def sort_default(self):
-        return z3.IntVal(0)
-
     def _coerce_restrictions(self, z):
         return z, []
 
     def _accepts_sort(self, sort):
         return sort == z3.IntSort()
+
+    def _is_subtype_of(self, t):
+        return isinstance(t, IntType) or (isinstance(t, UnionType) and any((isinstance(o, IntType) for o in t.options)))
 
 class RestrictedType(BaseType):
     def __init__(self, underlying, it_restrictions):
@@ -84,12 +84,7 @@ class RestrictedType(BaseType):
     def sort(self):
         return self.underlying.sort()
 
-    def sort_default(self):
-        return self.underlying.sort_default()
-
-    def coerce_restrictions(self, z):
-        if not self._accepts_sort(z.sort()):
-            return self.sort_default(), z3.BoolVal(False)
+    def _coerce_restrictions(self, z):
         result, restrictions = self.underlying.coerce_restrictions(z)
         restrictions = list(restrictions)
         substitutions = [(self.var('.it'), z)]
@@ -106,9 +101,19 @@ class RestrictedType(BaseType):
     def lookup_type_restrictions(self, z, index):
         return self.underlying.lookup_type_restrictions(z, index)
 
+    def _is_subtype_of(self, t):
+        # TODO: this doesn't cover all the cases for restricted types
+        return self.underlying._is_subtype_of(t)
+
 def get_tuple_sort_arity(sort):
     if isinstance(sort, z3.DatatypeSortRef) and sort.num_constructors() == 1:
         return sort.constructor(0).arity()
+    else:
+        return None
+
+def get_union_sort_count(sort):
+    if isinstance(sort, z3.DatatypeSortRef) and sort.num_constructors() > 1:
+        return sort.num_constructors()
     else:
         return None
 
@@ -122,10 +127,7 @@ class TupleType(BaseType):
     def sort(self):
         return z3.TupleSort(str(self), [m.sort() for m in self.members])[0]
 
-    def sort_default(self):
-        return self.listing([m.sort_default() for m in self.members])
-
-    def coerce_restrictions(self, z):
+    def _coerce_restrictions(self, z):
         restrictions = []
         n = len(self.members)
         if get_tuple_sort_arity(z.sort()) == n:
@@ -177,8 +179,33 @@ class TupleType(BaseType):
                 return z.sort().accessor(0,i)(z), self.members[i], []
             else:
                 raise PreconditionException(f'Fixed index {i} out of range 0..{n}')
+        elif n == 0:
+            raise PreconditionException(f'Indexing empty tuple')
         else:
-            raise Unimplemented('Currently only implement fixed indexing for tuples')
+            result = z.sort().accessor(0,0)(z)
+            for i in range(1, n):
+                result = z3.If(index == i, z.sort().accessor(0,i)(z), result)
+            return result, union_type(self.members), [index >= 0, index < n]
+
+    def _is_subtype_of(self, t):
+        if isinstance(t, UnionType):
+            t_options = t.options
+        else:
+            t_options = [t]
+
+        for t_o in t_options:
+            ok = True
+            if not isinstance(t_o, TupleType):
+                ok = False
+            elif len(t_o.members) != len(self.members):
+                ok = False
+            else:
+                for i in range(len(self.members)):
+                    if not self.members[i]._is_subtype_of(t_o.members[i]):
+                        ok = False
+            if ok:
+                return True
+        return False
 
 class ArrayType(BaseType):
     def __init__(self, element):
@@ -189,9 +216,6 @@ class ArrayType(BaseType):
 
     def sort(self):
         return z3.SeqSort(self.element.sort())
-
-    def sort_default(self):
-        return z3.Empty(self.sort())
 
     def _coerce_restrictions(self, z):
         arity = get_tuple_sort_arity(z.sort())
@@ -234,6 +258,83 @@ class ArrayType(BaseType):
     def lookup_type_restrictions(self, z, index):
         return z[index], self.element, [index >= 0, index < z3.Length(z)]
 
+    def _is_subtype_of(self, t):
+        if isinstance(t, UnionType):
+            t_options = t.options
+        else:
+            t_options = [t]
+
+        for t_o in t_options:
+            if isinstance(t_o, ArrayType) and self.element._is_subtype_of(t_o.element):
+                return True
+        return False
+
+class UnionType(BaseType):
+    def __init__(self, options):
+        if len(options) < 2:
+            raise UnexpectedException('Must have at least two options')
+        self.options = options
+
+    def __repr__(self):
+        return 'union[' + ','.join((str(m) for m in self.options)) + ']'
+
+    def sort(self):
+        return z3.DisjointSum(str(self), [m.sort() for m in self.options])[0]
+
+    def _coerce_restrictions(self, z):
+        n = len(self.options)
+        union_count = get_union_sort_count(z.sort())
+        restrictions = []
+        result = None
+        if union_count != None:
+            for src_i in range(union_count):
+                src = z.sort().accessor(src_i, 0)(z)
+                restriction_options = []
+                precondition = z.sort().recognizer(src_i)
+                for i in range(n):
+                    dest_t = self.options[i]
+                    if dest_t._accepts_sort(src.sort()):
+                        coerced, rs = dest_t.coerce_restrictions(src)
+                        restriction_options.append(and_zs(rs))
+                        yesval = self.sort().constructor(i)(z)
+                        if result == None:
+                            result = yesval
+                        else:
+                            result = z3.If(and_zs([precondition] + zs), yesval, result)
+                restrictions.append(z3.Imp(precondition, or_zs(restriction_options)))
+        else:
+            restriction_options = []
+            for i in range(n):
+                dest_t = self.options[i]
+                if dest_t._accepts_sort(src.sort()):
+                    coerced, rs = dest_t.coerce_restrictions(z)
+                    restriction_options.append(and_zs(rs))
+                    yesval = self.sort().constructor(i)(z)
+                    if result == None:
+                        result = yesval
+                    else:
+                        result = z3.If(and_zs(rs), yesval, result)
+            restrictions.append(or_zs(restriction_options))
+        if result == None:
+            raise UnexpectedException('Error coercing into union type')
+        return result, restrictions
+
+    def _is_subtype_of(self, t):
+        if isinstance(t, UnionType):
+            for option in self.options:
+                ok = False
+                for t_option in t.options:
+                    if option._is_subtype_of(t_option):
+                        ok = True
+                if not ok:
+                    return False
+            return True
+        else:
+            for option in self.options:
+                if not option._is_subtype_of(t):
+                    return False
+            return True
+
 B = BoolType()
 Z = IntType()
 
@@ -257,6 +358,34 @@ def array_type(element):
 
 def range_type(upper):
     return RestrictedType(Z, [z3.Int('.it') >= 0, z3.Int('.it') < upper])
+
+def union_type(orig_options):
+    squashed_options = []
+    for orig_option in orig_options:
+        if isinstance(orig_option, ImpossibleType):
+            option_options = []
+        elif isinstance(orig_option, UnionType):
+            option_options = orig_option.options
+        else:
+            option_options = [orig_option]
+
+        for option in option_options:
+            want = True
+            for i in range(len(squashed_options)):
+                if squashed_options[i]._is_subtype_of(option):
+                    squashed_options[i] = None
+                elif option._is_subtype_of(squashed_options[i]):
+                    want = False
+            if want:
+                squashed_options.append(option)
+            squashed_options = [opt for opt in squashed_options if opt != None]
+
+    if len(squashed_options) == 0:
+        return ImpossibleType()
+    elif len(squashed_options) == 1:
+        return squashed_options[0]
+    else:
+        return UnionType(squashed_options)
 
 def intersect(t0, t1):
     if isinstance(t0, BoolType) and isinstance(t1, BoolType):
