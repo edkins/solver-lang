@@ -4,7 +4,7 @@ import z3
 from z3lang.errors import *
 from z3lang.expr import Expr
 from z3lang.grammar import grammar
-from z3lang.misc import or_zs
+from z3lang.misc import or_zs, for_all
 from z3lang.types import *
 
 class StackFrame:
@@ -26,6 +26,7 @@ class Session:
         self.output = output
         self.env = {}
         self.solver = z3.Solver()
+        #self.solver.set(timeout=1000)
         self.stack = []
         self.builtins = {
             'lt': (Func([int_arg('a'), int_arg('b')], B), lambda a,b:a<b),
@@ -145,10 +146,10 @@ class Session:
         ex = self.typecheck(e)
         v = ex.typ.var(x)
         self.env[x] = Expr(ex.typ, v)
-        self.solver.add(equality(v, ex.z))
+        self.solver.add(v == ex.z)
         func_name = '.'.join([s.name for s in self.stack] + [x])
         if len(self.stack) > 0:
-            xcall = self.add_equation(func_name, ex.z)
+            xcall = self.add_equation(func_name, ex.z, ex.typ)
             self.stack[-1].substitutions.append((v, xcall))
 
     def ret(self, e):
@@ -158,24 +159,23 @@ class Session:
         ex = self.typecheck_coerce(e, self.stack[-1].functype.ret, substitutions=[], excep=PostconditionException)
 
         func_name = '.'.join([s.name for s in self.stack])
-        self.add_equation(func_name, ex.z)
+        self.add_equation(func_name, ex.z, ex.typ)
         self.solver.add(z3.BoolVal(False))   # return jumps out of the function, so it's unreachable afterwards
 
-    def add_equation(self, func_name, zorig):
+    def add_equation(self, func_name, zorig, typ):
         if len(self.stack) == 0:
             raise NotInFunction()
 
         z = self.perform_substitution(zorig)
+        ex = Expr(typ, z)
         var_list = []
         for s in self.stack:
             for arg in s.functype.args:
                 var_list.append(arg.var())
         func = self.stack[-1].functype.func(func_name)
         func_with_vars = func(*var_list)
-        if len(var_list) > 0:
-            eq = z3.ForAll(var_list, equality(func_with_vars, z))
-        else:
-            eq = equality(func_with_vars, z)
+        func_ex = Expr(self.stack[-1].functype.ret, func_with_vars)
+        eq = for_all(var_list, func_ex.eq(ex).z)
         self.stack[-1].equations.append(eq)
         return func_with_vars
 
@@ -274,7 +274,7 @@ class Session:
         self.solver.push()
         try:
             var = expr.typ.var('.result')
-            self.solver.add(equality(var, expr.z))
+            self.solver.add(var == expr.z)
             result = []
             for i in range(maximum):
                 if self.solver.check() == z3.sat:

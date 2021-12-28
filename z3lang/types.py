@@ -6,7 +6,12 @@ class BaseType:
         return z3.Const(x, self.sort())
 
     def restrictions(self, name):
-        return self.z_restrictions(self.var(name))
+        return self.coerce_restrictions(self.var(name))[1]
+
+    def coerce_restrictions(self, z):
+        if not self._accepts_sort(z.sort()):
+            return self.sort_default(), z3.BoolVal(False)
+        return self._coerce_restrictions(z)
 
 class ImpossibleType(BaseType):
     def __repr__(self):
@@ -15,10 +20,13 @@ class ImpossibleType(BaseType):
     def sort(self):
         return z3.BoolSort()
 
-    def z_restrictions(self, z):
+    def sort_default(self):
         return z3.BoolVal(False)
 
-    def accepts_sort(self, sort):
+    def _coerce_restrictions(self, z):
+        raise UnexpectedException('Unreachable for ImpossibleType')
+
+    def _accepts_sort(self, sort):
         return False
 
 class BoolType(BaseType):
@@ -28,12 +36,13 @@ class BoolType(BaseType):
     def sort(self):
         return z3.BoolSort()
 
-    def z_restrictions(self, z):
-        if not self.accepts_sort(z.sort()):
-            raise UnexpectedException(f'Unexpected sort encountered')
-        return []
+    def sort_default(self):
+        return z3.BoolVal(False)
 
-    def accepts_sort(self, sort):
+    def _coerce_restrictions(self, z):
+        return z, []
+
+    def _accepts_sort(self, sort):
         return sort == z3.BoolSort()
 
 class IntType(BaseType):
@@ -43,12 +52,13 @@ class IntType(BaseType):
     def sort(self):
         return z3.IntSort()
 
-    def z_restrictions(self, z):
-        if not self.accepts_sort(z.sort()):
-            raise UnexpectedException(f'Unexpected sort encountered')
-        return []
+    def sort_default(self):
+        return z3.IntVal(0)
 
-    def accepts_sort(self, sort):
+    def _coerce_restrictions(self, z):
+        return z, []
+
+    def _accepts_sort(self, sort):
         return sort == z3.IntSort()
 
 class RestrictedType(BaseType):
@@ -62,17 +72,21 @@ class RestrictedType(BaseType):
     def sort(self):
         return self.underlying.sort()
 
-    def z_restrictions(self, z):
-        if not self.accepts_sort(z.sort()):
-            raise UnexpectedException(f'Unexpected sort encountered')
-        restrictions = list(self.underlying.z_restrictions(z))
+    def sort_default(self):
+        return self.underlying.sort_default()
+
+    def coerce_restrictions(self, z):
+        if not self._accepts_sort(z.sort()):
+            return self.sort_default(), z3.BoolVal(False)
+        result, restrictions = self.underlying.coerce_restrictions(z)
+        restrictions = list(restrictions)
         substitutions = [(self.var('.it'), z)]
         for r in self.it_restrictions:
             restrictions.append(z3.substitute(r, substitutions))
-        return restrictions
+        return result, restrictions
 
-    def accepts_sort(self, sort):
-        return self.underlying.accepts_sort(sort)
+    def _accepts_sort(self, sort):
+        return self.underlying._accepts_sort(sort)
 
 def get_tuple_sort_arity(sort):
     if isinstance(sort, z3.DatatypeSortRef) and sort.num_constructors() == 1:
@@ -90,20 +104,27 @@ class TupleType(BaseType):
     def sort(self):
         return z3.TupleSort(str(self), [m.sort() for m in self.members])[0]
 
-    def z_restrictions(self, z):
-        if not self.accepts_sort(z.sort()):
-            raise UnexpectedException(f'Unexpected sort encountered')
+    def sort_default(self):
+        return self.listing([m.sort_default() for m in self.members])
+
+    def coerce_restrictions(self, z):
         restrictions = []
         n = len(self.members)
         if get_tuple_sort_arity(z.sort()) == n:
+            xs = []
             for i in range(n):
-                restrictions += self.members[i].z_restrictions(z.sort().accessor(0,i)(z))
-            return restrictions
+                x, rs = self.members[i].coerce_restrictions(z.sort().accessor(0,i)(z))
+                restrictions += rs
+                xs.append(x)
+            return self.listing(xs), restrictions
         elif isinstance(z.sort(), z3.SeqSortRef):
             restrictions.append(z3.Length(z) == n)
+            xs = []
             for i in range(n):
-                restrictions += self.members[i].z_restrictions(z[i])
-            return restrictions
+                x, rs = self.members[i].coerce_restrictions(z[i])
+                restrictions += rs
+                xs.append(x)
+            return self.listing(xs), restrictions
         else:
             raise UnexpectedException('Unexpected sort encountered')
 
@@ -112,16 +133,16 @@ class TupleType(BaseType):
             raise UnexpectedException(f'Expecting {len(self.members)} zs, got {len(zs)}')
         return self.sort().constructor(0)(*zs)
 
-    def accepts_sort(self, sort):
+    def _accepts_sort(self, sort):
         n = len(self.members)
         if get_tuple_sort_arity(sort) == n:
             for i in range(n):
-                if not self.members[i].accepts_sort(sort.constructor(0).domain(i)):
+                if not self.members[i]._accepts_sort(sort.constructor(0).domain(i)):
                     return False
             return True
         elif isinstance(sort, z3.SeqSortRef):
             for i in range(n):
-                if not self.members[i].accepts_sort(sort.basis()):
+                if not self.members[i]._accepts_sort(sort.basis()):
                     return False
             return True
         else:
@@ -137,31 +158,36 @@ class ArrayType(BaseType):
     def sort(self):
         return z3.SeqSort(self.element.sort())
 
-    def z_restrictions(self, z):
-        if not self.accepts_sort(z.sort()):
-            raise UnexpectedException(f'Unexpected sort encountered')
+    def sort_default(self):
+        return z3.Empty(self.sort())
+
+    def coerce_restrictions(self, z):
         arity = get_tuple_sort_arity(z.sort())
         if isinstance(z.sort(), z3.SeqSortRef):
             x = z3.Int('.x')
             restrictions = []
-            for r in self.element.z_restrictions(z[x]):
+            y,rs = self.element.coerce_restrictions(z[x])
+            for r in rs:
                 restrictions.append(z3.ForAll([x], z3.Implies(z3.And(x >= 0, x < z3.Length(z)), r)))
-            return restrictions
+            return z3.Map(z3.Lambda([x], y), z), restrictions
         elif arity != None:
             restrictions = []
+            ys = []
             for i in range(arity):
-                restrictions.append(self.element.z_restrictions(z.sort().accessor(0,i)(z)))
-            return restrictions
+                y,rs = self.element.coerce_restrictions(z.sort().accessor(0,i)(z))
+                restrictions += rs
+                ys.append(y)
+            return sequence_zs(ys), restrictions
         else:
             raise UnexpectedException(f'Unexpected sort encountered')
 
-    def accepts_sort(self, sort):
+    def _accepts_sort(self, sort):
         arity = get_tuple_sort_arity(sort)
         if isinstance(sort, z3.SeqSortRef):
-            return self.element.accepts_sort(sort.basis())
+            return self.element._accepts_sort(sort.basis())
         elif arity != None:
             for i in range(arity):
-                if not self.element.accepts_sort(sort.constructor(0).domain(i)):
+                if not self.element._accepts_sort(sort.constructor(0).domain(i)):
                     return False
             return True
         else:
@@ -176,7 +202,7 @@ def restricted_type(underlying, it_restrictions):
     if len(it_restrictions) == 0:
         return underlying
     if isinstance(underlying, RestrictedType):
-        return RestrictedType(underlying.it_restrictions + it_restrictions)
+        return RestrictedType(underlying.underlying, underlying.it_restrictions + it_restrictions)
     return RestrictedType(underlying, it_restrictions)
 
 def tuple_type(members):
@@ -200,11 +226,11 @@ def intersect(t0, t1):
 
     if isinstance(t0, RestrictedType):
         t = intersect(t0.underlying, t1)
-        return restricted_type(t, t0.z_restrictions(t.var('.it')))
+        return restricted_type(t, t0.coerce_restrictions(t0.var('.it'))[1])
 
     if isinstance(t1, RestrictedType):
         t = intersect(t0, t1.underlying)
-        return restricted_type(t, t1.z_restrictions(t.var('.it')))
+        return restricted_type(t, t1.coerce_restrictions(t1.var('.it'))[1])
 
     if isinstance(t0, TupleType) and isinstance(t1, TupleType) and len(t0.members) == len(t1.members):
         return tuple_type([intersect(m0,m1) for m0,m1 in zip(t0.members, t1.members)])
@@ -219,31 +245,6 @@ def intersect(t0, t1):
         return tuple_type([intersect(t0.element,m) for m in t1.members])
 
     return ImpossibleType()
-
-def equality(z0, z1):
-    if z0.sort() == z1.sort():
-        return z0 == z1
-
-    if isinstance(z0.sort(), z3.SeqSortRef) and isinstance(z1.sort(), z3.SeqSortRef):
-        x = z3.Int('.x')
-        for r in self.element.z_restrictions(z[x]):
-            restrictions.append(z3.ForAll([x], z3.Implies(z3.And(x >= 0, x < z3.Length(z)), r)))
-        
-        eq = equality(z0[x], z1[x])
-        return z3.And(z3.Length(z0) == z3.Length(z1), z3.ForAll([x], z3.Implies(z3.And(x >= 0, x < z3.Length(z0)), eq)))
-
-    arity0 = get_tuple_sort_arity(z0.sort())
-    arity1 = get_tuple_sort_arity(z1.sort())
-    if arity0 != None and arity1 != None and arity0 == arity1:
-        return and_zs([equality(z0.sort().accessor(0,i)(z0), z1.sort().accessor(0,i)(z1)) for i in range(arity0)])
-
-    if arity0 != None and isinstance(z1.sort(), z3.SeqSortRef):
-        return sequence_zs(z1.sort().basis(), [z0.sort().accessor(0,i)(z0) for i in range(arity0)]) == z1
-
-    if isinstance(z0.sort(), z3.SeqSortRef) and arity1 != None:
-        return z0 == sequence_zs(z0.sort().basis(), [z1.sort().accessor(0,i)(z1) for i in range(arity1)])
-
-    return z3.BoolVal(False)
 
 class Arg:
     def __init__(self, name, typ):

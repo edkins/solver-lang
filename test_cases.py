@@ -154,7 +154,7 @@ fn array_tuple(x:array int) -> tuple[array int] {
 assert int_tuple(0) == array_tuple(0)
 """)
 
-def test_lol():
+def test_lists_of_lists():
     run_script("""
 fn int_tuple(x:int) -> tuple[int] {
     return [x]
