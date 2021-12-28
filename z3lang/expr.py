@@ -11,6 +11,9 @@ class Expr:
         self.typ = typ
         self.z = z
 
+    def __repr__(self):
+        return f'{self.z}:{self.typ}'
+
     def eq(self, other, negate=False):
         newtype = intersect(self.typ, other.typ)
         z0, r0 = newtype.coerce_restrictions(self.z)
@@ -22,6 +25,5 @@ class Expr:
             return Expr(B, result)
 
     def coerce_restrictions(self, typ):
-        newtype = intersect(self.typ, typ)
-        z, restrictions = newtype.coerce_restrictions(self.z)
-        return Expr(newtype, z), restrictions
+        z, restrictions = typ.coerce_restrictions(self.z)
+        return Expr(typ, z), restrictions

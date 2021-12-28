@@ -1,6 +1,6 @@
 import z3
 from z3lang.misc import and_zs, sequence_zs
-from z3lang.errors import TypeException
+from z3lang.errors import TypeException, UnexpectedException
 
 class BaseType:
     def var(self, x):
@@ -165,7 +165,7 @@ class ArrayType(BaseType):
     def sort_default(self):
         return z3.Empty(self.sort())
 
-    def coerce_restrictions(self, z):
+    def _coerce_restrictions(self, z):
         arity = get_tuple_sort_arity(z.sort())
         if isinstance(z.sort(), z3.SeqSortRef):
             x = z3.Int('.x')
@@ -186,7 +186,7 @@ class ArrayType(BaseType):
                 ys.append(y)
             return sequence_zs(self.element.sort(), ys), restrictions
         else:
-            raise UnexpectedException(f'Unexpected sort encountered')
+            raise UnexpectedException(f'Unexpected sort encountered {z.sort()} for {self}')
 
     def _accepts_sort(self, sort):
         arity = get_tuple_sort_arity(sort)
