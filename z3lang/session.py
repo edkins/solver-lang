@@ -159,6 +159,7 @@ class Session:
 
         func_name = '.'.join([s.name for s in self.stack])
         self.add_equation(func_name, ex.z)
+        self.solver.add(z3.BoolVal(False))   # return jumps out of the function, so it's unreachable afterwards
 
     def add_equation(self, func_name, zorig):
         if len(self.stack) == 0:
@@ -307,6 +308,9 @@ class Session:
     def pop(self):
         if len(self.stack) == 0:
             raise StackEmpty()
+        if self.solver.check() == z3.sat:
+            print(self.solver.model())
+            raise IncompleteFunctionException()
         sf = self.stack.pop()
         self.env = sf.env
         self.solver.pop()
@@ -361,6 +365,8 @@ class Session:
 
     def prompt(self):
         stack = ''.join((f'{s.name} ' for s in self.stack))
+        if self.solver.check() == z3.unsat:
+            stack += '!'
         return f'{stack}>> '
 
 def run_script(script):
