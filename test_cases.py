@@ -133,3 +133,50 @@ def test_no_return():
 fn f() -> int {
 }
 """)
+
+def test_array_eq():
+    run_script("""
+fn combine(x:int, y:int) -> array int {
+    return [x,y]
+}
+assert combine(4,5) == combine(4,5)
+""")
+
+def test_mismatched_array_element():
+    with pytest.raises(TypeException):
+        run_script("""
+fn int_tuple(x:int) -> tuple[int] {
+    return [x]
+}
+fn array_tuple(x:array int) -> tuple[array int] {
+    return [x]
+}
+assert int_tuple(0) == array_tuple(0)
+""")
+
+def test_lol():
+    run_script("""
+fn int_tuple(x:int) -> tuple[int] {
+    return [x]
+}
+fn int_array(x:int) -> array int {
+    return [x]
+}
+fn tuple_tuple(x:tuple[int]) -> tuple[tuple[int]] {
+    return [x]
+}
+fn tuple_array(x:tuple[int]) -> array tuple[int] {
+    return [x]
+}
+fn array_tuple(x:array int) -> tuple[array int] {
+    return [x]
+}
+fn array_array(x:array int) -> array (array int) {
+    return [x]
+}
+assert int_tuple(0) == int_tuple(0)
+assert int_tuple(0) == int_array(0)
+assert tuple_tuple(int_tuple(0)) == tuple_tuple(int_tuple(0))
+assert tuple_tuple(int_tuple(0)) == tuple_tuple(int_array(0))
+""")
+

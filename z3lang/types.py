@@ -18,6 +18,9 @@ class ImpossibleType(BaseType):
     def z_restrictions(self, z):
         return z3.BoolVal(False)
 
+    def accepts_sort(self, sort):
+        return False
+
 class BoolType(BaseType):
     def __repr__(self):
         return 'bool'
@@ -26,9 +29,12 @@ class BoolType(BaseType):
         return z3.BoolSort()
 
     def z_restrictions(self, z):
-        if z.sort() != z3.BoolSort():
+        if not self.accepts_sort(z.sort()):
             raise UnexpectedException(f'Unexpected sort encountered')
         return []
+
+    def accepts_sort(self, sort):
+        return sort == z3.BoolSort()
 
 class IntType(BaseType):
     def __repr__(self):
@@ -38,9 +44,12 @@ class IntType(BaseType):
         return z3.IntSort()
 
     def z_restrictions(self, z):
-        if z.sort() != z3.IntSort():
+        if not self.accepts_sort(z.sort()):
             raise UnexpectedException(f'Unexpected sort encountered')
         return []
+
+    def accepts_sort(self, sort):
+        return sort == z3.IntSort()
 
 class RestrictedType(BaseType):
     def __init__(self, underlying, it_restrictions):
@@ -54,11 +63,16 @@ class RestrictedType(BaseType):
         return self.underlying.sort()
 
     def z_restrictions(self, z):
+        if not self.accepts_sort(z.sort()):
+            raise UnexpectedException(f'Unexpected sort encountered')
         restrictions = list(self.underlying.z_restrictions(z))
         substitutions = [(self.var('.it'), z)]
         for r in self.it_restrictions:
             restrictions.append(z3.substitute(r, substitutions))
         return restrictions
+
+    def accepts_sort(self, sort):
+        return self.underlying.accepts_sort(sort)
 
 def get_tuple_sort_arity(sort):
     if isinstance(sort, z3.DatatypeSortRef) and sort.num_constructors() == 1:
@@ -77,6 +91,8 @@ class TupleType(BaseType):
         return z3.TupleSort(str(self), [m.sort() for m in self.members])[0]
 
     def z_restrictions(self, z):
+        if not self.accepts_sort(z.sort()):
+            raise UnexpectedException(f'Unexpected sort encountered')
         restrictions = []
         n = len(self.members)
         if get_tuple_sort_arity(z.sort()) == n:
@@ -96,6 +112,21 @@ class TupleType(BaseType):
             raise UnexpectedException(f'Expecting {len(self.members)} zs, got {len(zs)}')
         return self.sort().constructor(0)(*zs)
 
+    def accepts_sort(self, sort):
+        n = len(self.members)
+        if get_tuple_sort_arity(sort) == n:
+            for i in range(n):
+                if not self.members[i].accepts_sort(sort.constructor(0).domain(i)):
+                    return False
+            return True
+        elif isinstance(sort, z3.SeqSortRef):
+            for i in range(n):
+                if not self.members[i].accepts_sort(sort.basis()):
+                    return False
+            return True
+        else:
+            return False
+
 class ArrayType(BaseType):
     def __init__(self, element):
         self.element = element
@@ -107,18 +138,34 @@ class ArrayType(BaseType):
         return z3.SeqSort(self.element.sort())
 
     def z_restrictions(self, z):
+        if not self.accepts_sort(z.sort()):
+            raise UnexpectedException(f'Unexpected sort encountered')
         arity = get_tuple_sort_arity(z.sort())
         if isinstance(z.sort(), z3.SeqSortRef):
             x = z3.Int('.x')
+            restrictions = []
             for r in self.element.z_restrictions(z[x]):
                 restrictions.append(z3.ForAll([x], z3.Implies(z3.And(x >= 0, x < z3.Length(z)), r)))
             return restrictions
         elif arity != None:
+            restrictions = []
             for i in range(arity):
                 restrictions.append(self.element.z_restrictions(z.sort().accessor(0,i)(z)))
             return restrictions
         else:
             raise UnexpectedException(f'Unexpected sort encountered')
+
+    def accepts_sort(self, sort):
+        arity = get_tuple_sort_arity(sort)
+        if isinstance(sort, z3.SeqSortRef):
+            return self.element.accepts_sort(sort.basis())
+        elif arity != None:
+            for i in range(arity):
+                if not self.element.accepts_sort(sort.constructor(0).domain(i)):
+                    return False
+            return True
+        else:
+            return False
 
 B = BoolType()
 Z = IntType()

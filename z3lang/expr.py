@@ -5,9 +5,8 @@ from z3lang.misc import eq_zs, and_zs
 
 class Expr:
     def __init__(self, typ, z):
-        sort = typ.sort()
-        if z.sort() != sort:
-            raise UnexpectedException(f'Sort mismatch in Expr.__init__ {z.sort()} vs {sort}')
+        if not typ.accepts_sort(z.sort()):
+            raise UnexpectedException(f'Sort mismatch in Expr.__init__ {typ} doesn\'t accept {sort}')
 
         self.typ = typ
         self.z = z
@@ -22,5 +21,8 @@ class Expr:
 
     def coerce_restrictions(self, typ):
         newtype = intersect(self.typ, typ)
-        restrictions = newtype.z_restrictions(self.z)
-        return Expr(newtype, self.z), restrictions
+        if newtype.accepts_sort(self.z.sort()):
+            restrictions = newtype.z_restrictions(self.z)
+            return Expr(newtype, self.z), restrictions
+        else:
+            raise TypeException(f'Sort {self.z.sort()} not acceptable for type {newtype}')
