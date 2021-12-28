@@ -175,7 +175,8 @@ class Session:
         func = self.stack[-1].functype.func(func_name)
         func_with_vars = func(*var_list)
         func_ex = Expr(self.stack[-1].functype.ret, func_with_vars)
-        eq = for_all(var_list, func_ex.eq(ex).z)
+        z1, r_ = self.stack[-1].functype.ret.coerce_restrictions(z)
+        eq = for_all(var_list, func_with_vars == z1)
         self.stack[-1].equations.append(eq)
         return func_with_vars
 

@@ -1,5 +1,6 @@
 import z3
 from z3lang.misc import and_zs, sequence_zs
+from z3lang.errors import TypeException
 
 class BaseType:
     def var(self, x):
@@ -10,8 +11,11 @@ class BaseType:
 
     def coerce_restrictions(self, z):
         if not self._accepts_sort(z.sort()):
-            return self.sort_default(), z3.BoolVal(False)
-        return self._coerce_restrictions(z)
+            raise TypeException()
+        result, restrictions = self._coerce_restrictions(z)
+        if self.sort() == z.sort():
+            result = z
+        return result, restrictions
 
 class ImpossibleType(BaseType):
     def __repr__(self):
@@ -169,7 +173,10 @@ class ArrayType(BaseType):
             y,rs = self.element.coerce_restrictions(z[x])
             for r in rs:
                 restrictions.append(z3.ForAll([x], z3.Implies(z3.And(x >= 0, x < z3.Length(z)), r)))
-            return z3.Map(z3.Lambda([x], y), z), restrictions
+            if self.element.sort() == z[x].sort():
+                return z, restrictions
+            else:
+                return z3.Map(z3.Lambda([x], y), z), restrictions
         elif arity != None:
             restrictions = []
             ys = []
@@ -177,7 +184,7 @@ class ArrayType(BaseType):
                 y,rs = self.element.coerce_restrictions(z.sort().accessor(0,i)(z))
                 restrictions += rs
                 ys.append(y)
-            return sequence_zs(ys), restrictions
+            return sequence_zs(self.element.sort(), ys), restrictions
         else:
             raise UnexpectedException(f'Unexpected sort encountered')
 
