@@ -8,29 +8,29 @@ Ast = Union[lark.Tree,lark.Token]
 def to_expr(ast: Ast) -> Expr:
     if isinstance(ast, lark.Token):
         if ast.type == 'CNAME':
-            return Expr(ast.value)
+            return Var(ast.value)
         elif ast.type == 'INT':
-            return Expr(ast.value)
+            return Int(int(ast.value))
         elif ast.type == 'TRUE':
-            return Expr('.true')
+            return Builtin('.true')
         elif ast.type == 'FALSE':
-            return Expr('.false')
+            return Builtin('.false')
         else:
             raise Unimplemented(f'Unimplemented expression token {ast.type}')
     elif isinstance(ast, lark.Tree):
         if ast.data in ['eq','ne','lt','le','gt','ge','add','sub','mul','lookup']:
             e0, e1 = ast.children
-            return Expr(f'.{ast.data}', to_expr(e0), to_expr(e1))
+            return Builtin(f'.{ast.data}', to_expr(e0), to_expr(e1))
         elif ast.data in ['neg','len']:
             e0, = ast.children
-            return Expr(f'.{ast.data}', to_expr(e0))
+            return Builtin(f'.{ast.data}', to_expr(e0))
         elif ast.data == 'call':
             f = ast.children[0].value
             xs = ast.children[1:]
-            return Expr(f, *[to_expr(x) for x in xs])
+            return Call(f, *[to_expr(x) for x in xs])
         elif ast.data == 'listing':
             xs = ast.children
-            return Expr('.listing', *[to_expr(x) for x in xs])
+            return Builtin('.listing', *[to_expr(x) for x in xs])
         else:
             raise Unimplemented(f'Unimplemented expression tree {ast.data}')
     else:
@@ -45,7 +45,7 @@ def to_statement(ast: Ast) -> Statement:
             e, = ast.children
             return Assert(to_expr(e))
         elif ast.data == 'unreachable':
-            return Assert(Expr(".false"))
+            return Assert(Builtin(".false"))
         elif ast.data == 'return':
             e, = ast.children
             return Return(to_expr(e))

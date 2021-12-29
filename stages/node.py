@@ -1,18 +1,37 @@
 from typing import Any
 
 class Expr:
-    def __init__(self, f:str, *xs:Any):
-        self.f = f
-        self.xs = list(xs)
-        self.typ = None
-
     def __repr__(self):
-        result = self.f
+        result = str(self.f)
         if len(self.xs) > 0:
             result += str(self.xs)
         if self.typ != None:
             result += f':{self.typ}'
         return result
+
+class Int(Expr):
+    def __init__(self, f:int):
+        self.f = f
+        self.xs = []
+        self.typ = None
+
+class Var(Expr):
+    def __init__(self, f:str):
+        self.f = f
+        self.xs = []
+        self.typ = None
+
+class Call(Expr):
+    def __init__(self, f:str, *xs:Any):
+        self.f = f
+        self.xs = list(xs)
+        self.typ = None
+
+class Builtin(Expr):
+    def __init__(self, f:str, *xs:Any):
+        self.f = f
+        self.xs = list(xs)
+        self.typ = None
 
 class Type:
     def __init__(self, name:str, type_args:list, expr_args:list[Expr]):
