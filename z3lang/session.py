@@ -219,6 +219,9 @@ class Session:
             elif tname.data == 'array':
                 t = self.lookup_type(tname.children[0])
                 return array_type(t)
+            elif tname.data == 'union':
+                ts = [self.lookup_type(e) for e in tname.children]
+                return union_type(ts)
             else:
                 raise Unimplemented(f'type tree {tname}')
 

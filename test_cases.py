@@ -200,3 +200,11 @@ fn f(i:range 3) -> int {
 }
 """)
 
+def test_union_actually_int():
+    run_script("""
+fn f() -> union[int,bool] {
+    return 34
+}
+assert f() + 1 == 35
+""")
+

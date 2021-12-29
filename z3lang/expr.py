@@ -5,11 +5,10 @@ from z3lang.misc import eq_zs, and_zs
 
 class Expr:
     def __init__(self, typ, z):
-        if typ.sort() != z.sort():
-            raise UnexpectedException(f'Sort mismatch in Expr.__init__ {typ.sort()} vs {sort}')
-
         self.typ = typ
         self.z = z
+        if typ.sort() != z.sort():
+            raise UnexpectedException(f'Sort mismatch in Expr.__init__ {typ.sort()} vs {z.sort()}')
 
     def __repr__(self):
         return f'{self.z}:{self.typ}'

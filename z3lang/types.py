@@ -1,5 +1,5 @@
 import z3
-from z3lang.misc import and_zs, sequence_zs
+from z3lang.misc import and_zs, or_zs, sequence_zs
 from z3lang.errors import *
 
 class BaseType:
@@ -12,7 +12,28 @@ class BaseType:
     def coerce_restrictions(self, z):
         if not self._accepts_sort(z.sort()):
             raise TypeException()
-        result, restrictions = self._coerce_restrictions(z)
+
+        count = get_union_sort_count(z.sort())
+        if count != None:
+            restriction_options = []
+            result = None
+            for i in range(count):
+                z_opt = z.sort().accessor(i,0)(z)
+                if self._accepts_sort(z_opt.sort()):
+                    result_opt, rs = self._coerce_restrictions(z_opt)
+                    precondition = z.sort().recognizer(i)(z)
+                    restriction_options.append(and_zs([precondition] + rs))
+                    if self.sort() == z_opt.sort():
+                        result_opt = z_opt
+                    if result == None:
+                        result = result_opt
+                    else:
+                        result = z3.If(precondition, result_opt, result)
+            if result == None:
+                raise TypeException(f'Error with sorts when enumerating options')
+            restrictions = [or_zs(restriction_options)]
+        else:
+            result, restrictions = self._coerce_restrictions(z)
         if self.sort() == z.sort():
             result = z
         return result, restrictions
@@ -52,7 +73,7 @@ class BoolType(BaseType):
         return z, []
 
     def _accepts_sort(self, sort):
-        return sort == z3.BoolSort()
+        return any((sort_option == z3.BoolSort() for sort_option in get_sort_options(sort)))
 
     def _is_subtype_of(self, t):
         return isinstance(t, BoolType) or (isinstance(t, UnionType) and any((isinstance(o, BoolType) for o in t.options)))
@@ -68,7 +89,7 @@ class IntType(BaseType):
         return z, []
 
     def _accepts_sort(self, sort):
-        return sort == z3.IntSort()
+        return any((sort_option == z3.IntSort() for sort_option in get_sort_options(sort)))
 
     def _is_subtype_of(self, t):
         return isinstance(t, IntType) or (isinstance(t, UnionType) and any((isinstance(o, IntType) for o in t.options)))
@@ -117,6 +138,13 @@ def get_union_sort_count(sort):
     else:
         return None
 
+def get_sort_options(sort):
+    count = get_union_sort_count(sort)
+    if count == None:
+        return [sort]
+    else:
+        return [sort.constructor(i).domain(0) for i in range(count)]
+
 class TupleType(BaseType):
     def __init__(self, members):
         self.members = members
@@ -155,18 +183,21 @@ class TupleType(BaseType):
 
     def _accepts_sort(self, sort):
         n = len(self.members)
-        if get_tuple_sort_arity(sort) == n:
-            for i in range(n):
-                if not self.members[i]._accepts_sort(sort.constructor(0).domain(i)):
-                    return False
-            return True
-        elif isinstance(sort, z3.SeqSortRef):
-            for i in range(n):
-                if not self.members[i]._accepts_sort(sort.basis()):
-                    return False
-            return True
-        else:
-            return False
+        for sort_option in get_sort_options(sort):
+            ok = True
+            if get_tuple_sort_arity(sort_option) == n:
+                for i in range(n):
+                    if not self.members[i]._accepts_sort(sort_option.constructor(0).domain(i)):
+                        ok = False
+            elif isinstance(sort_option, z3.SeqSortRef):
+                for i in range(n):
+                    if not self.members[i]._accepts_sort(sort_option.basis()):
+                        ok = False
+            else:
+                ok = False
+            if ok:
+                return True
+        return False
 
     def len_restrictions(self, z):
         return z3.IntVal(len(self.members)), []
@@ -241,16 +272,20 @@ class ArrayType(BaseType):
             raise UnexpectedException(f'Unexpected sort encountered {z.sort()} for {self}')
 
     def _accepts_sort(self, sort):
-        arity = get_tuple_sort_arity(sort)
-        if isinstance(sort, z3.SeqSortRef):
-            return self.element._accepts_sort(sort.basis())
-        elif arity != None:
-            for i in range(arity):
-                if not self.element._accepts_sort(sort.constructor(0).domain(i)):
-                    return False
-            return True
-        else:
-            return False
+        for sort_option in get_sort_options(sort):
+            ok = True
+            arity = get_tuple_sort_arity(sort)
+            if isinstance(sort, z3.SeqSortRef):
+                ok = self.element._accepts_sort(sort.basis())
+            elif arity != None:
+                for i in range(arity):
+                    if not self.element._accepts_sort(sort.constructor(0).domain(i)):
+                        ok = False
+            else:
+                ok = False
+            if ok:
+                return True
+        return False
 
     def len_restrictions(self, z):
         return z3.Length(z), []
@@ -290,23 +325,23 @@ class UnionType(BaseType):
             for src_i in range(union_count):
                 src = z.sort().accessor(src_i, 0)(z)
                 restriction_options = []
-                precondition = z.sort().recognizer(src_i)
+                precondition = z.sort().recognizer(src_i)(z)
                 for i in range(n):
                     dest_t = self.options[i]
                     if dest_t._accepts_sort(src.sort()):
                         coerced, rs = dest_t.coerce_restrictions(src)
                         restriction_options.append(and_zs(rs))
-                        yesval = self.sort().constructor(i)(z)
+                        yesval = self.sort().constructor(i)(src)
                         if result == None:
                             result = yesval
                         else:
-                            result = z3.If(and_zs([precondition] + zs), yesval, result)
-                restrictions.append(z3.Imp(precondition, or_zs(restriction_options)))
+                            result = z3.If(and_zs([precondition] + rs), yesval, result)
+                restrictions.append(z3.Implies(precondition, or_zs(restriction_options)))
         else:
             restriction_options = []
             for i in range(n):
                 dest_t = self.options[i]
-                if dest_t._accepts_sort(src.sort()):
+                if dest_t._accepts_sort(z.sort()):
                     coerced, rs = dest_t.coerce_restrictions(z)
                     restriction_options.append(and_zs(rs))
                     yesval = self.sort().constructor(i)(z)
@@ -318,6 +353,14 @@ class UnionType(BaseType):
         if result == None:
             raise UnexpectedException('Error coercing into union type')
         return result, restrictions
+
+    def _accepts_sort(self, sort):
+        for sort_option in get_sort_options(sort):
+            ok = False
+            for option in self.options:
+                if option._accepts_sort(sort_option):
+                    return True
+        return False
 
     def _is_subtype_of(self, t):
         if isinstance(t, UnionType):
