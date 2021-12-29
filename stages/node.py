@@ -9,6 +9,9 @@ class Expr:
             result += f':{self.typ}'
         return result
 
+    def __eq__(self, other):
+        return isinstance(other, Expr) and self.f == other.f and self.xs == other.xs and self.typ == other.typ
+
 class Int(Expr):
     def __init__(self, f:int):
         self.f = f
@@ -44,6 +47,9 @@ class Type:
         if len(self.expr_args) > 0:
             result += str(self.expr_args)
         return result
+
+    def __eq__(self, other):
+        return isinstance(other, Type) and self.name == other.name and self.type_args == other.type_args and self.expr_args == other.expr_args
 
 class Statement:
     pass

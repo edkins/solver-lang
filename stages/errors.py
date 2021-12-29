@@ -1,3 +1,6 @@
+class UnexpectedException(Exception):
+    pass
+
 class Mistake(Exception):
     pass
 
@@ -20,4 +23,22 @@ class ReachabilityException(Mistake):
     pass
 
 class IncompleteFunctionException(Mistake):
+    pass
+
+class FuncAlreadyDefinedException(Mistake):
+    pass
+
+class VarAlreadyDefinedException(Mistake):
+    pass
+
+class VarFuncCollisionException(Mistake):
+    pass
+
+class VarNotDefinedException(Mistake):
+    pass
+
+class FuncNotDefinedException(Mistake):
+    pass
+
+class TopLevelReturnException(Mistake):
     pass
