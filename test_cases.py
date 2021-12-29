@@ -1,5 +1,5 @@
-from z3lang.session import run_script
-from z3lang.errors import *
+from stages.main import run_script
+from stages.errors import *
 import pytest
 
 def test_square():
@@ -10,18 +10,6 @@ fn square(x:int) -> int {
 
 assert square(-2) == 4
 """)
-
-def test_square_print():
-    assert run_script("""
-fn square(x:int) -> int {
-    return x * x
-}
-
-square(-2)
-""") == """Type: int
-{4}
-"""
-
 
 def test_square_assertion_failure():
     with pytest.raises(AssertionException):
