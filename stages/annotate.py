@@ -122,10 +122,10 @@ class TypeEnv:
         else:
             raise UnexpectedException('Var {x} not defined. This should already have been checked')
 
-    def get_fn_type(self, f:str) -> FnEnvItem:
+    def get_fn_type(self, f:str) -> FnType:
         item = self.items.get(f)
         if isinstance(item, FnEnvItem):
-            return item
+            return FnType(item.args, item.ret)
         else:
             raise UnexpectedException('Func {f} not defined. This should already have been checked')
 
@@ -188,7 +188,10 @@ class TypeEnv:
                 raise UnexpectedException(f'Var with {len(e.xs)} args')
             e.typ = self.get_var_type(e.f)
         elif isinstance(e, Call):
+            if e.fntype != None:
+                raise UnexpectedException('Function type already annotated')
             fn_type = self.get_fn_type(e.f)
+            e.fn_type = fn_type
             if len(fn_type.args) != len(e.xs):
                 raise ArgCountMismatchException(f'Expected {len(fn_type.args)} arguments, got {len(e.xs)}')
             expr_env = ExprEnv({})

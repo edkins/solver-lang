@@ -55,11 +55,18 @@ class Call(Expr):
         self.f = f
         self.xs = list(xs)
         self.typ = None
+        self.fn_type:Optional[FnType] = None
 
     def clone(self):
         result = Call(f, [x.clone() for x in self.xs])
         result.typ = self.typ.clone()
         return result
+
+    def get_fn_type(self) -> FnType:
+        if isinstance(self.fn_type, FnType):
+            return self.fn_type
+        else:
+            raise UnexpectedException('Should be annotated')
 
 class Builtin(Expr):
     def __init__(self, f:str, *xs:Expr):
@@ -89,6 +96,14 @@ class Type:
 
     def clone(self):
         return Type(self.name, [t.clone() for t in self.type_args], [e.clone() for e in self.expr_args])
+
+class FnType(EnvItem):
+    def __init__(self, args:list[tuple[str,Type]], ret:Type):
+        self.args = args
+        self.ret = ret
+
+    def __eq__(self, other):
+        return isinstance(other, FnType) and self.args == other.args and self.ret == other.ret
 
 class Statement:
     pass
