@@ -43,10 +43,11 @@ def get_element_type(t: Type, index: Optional[int]) -> Type:
         if t1.name in ['array','vec']:
             result.append(t1.type_args[0])
         elif t1.name == 'tuple':
-            if index == None:
+            if isinstance(index, int):
+                if index >= 0 and index < len(t1.type_args):    # TODO: if out of range, provide error hint
+                    result.append(t1.type_args[index])
+            else:
                 result += t1.type_args   # TODO: if empty, provide error hint as to why
-            elif index >= 0 and index < len(t1.type_args):    # TODO: if out of range, provide error hint
-                result.append(t1.type_args[index])
     return collapsed_union_type(result)
 
 def extract_int(e: Expr) -> Optional[int]:
@@ -72,7 +73,7 @@ class ExprEnv:
         return Type(typ.name, type_args, expr_args)
 
     def subst_expr(self, e:Expr) -> Expr:
-        if e.typ == None:
+        if not isinstance(e.typ, Type):
             raise UnexpectedException('Expression node has no type annotation')
         if isinstance(e, Int):
             return e.clone()
@@ -175,9 +176,11 @@ class TypeEnv:
             elif e.f == '.lookup':
                 if len(e.xs) != 2:
                     raise UnexpectedException(f'Lookup builtin with {len(e.xs)} args')
+                if not isinstance(e.xs[0].typ, Type):
+                    raise UnexpectedException('Should be annotated')
                 e.typ = get_element_type(e.xs[0].typ, extract_int(e.xs[1]))
             elif e.f == '.listing':
-                e.typ = tuple_type([x.typ for x in e.xs])
+                e.typ = tuple_type([x.get_type() for x in e.xs])
             else:
                 raise Unimplemented(f'No type annotation known for {e.f}')
         elif isinstance(e, Var):
@@ -208,7 +211,7 @@ class TypeEnv:
             if statement.typ != None:
                 raise UnexpectedException('Node already type-annotated')
             self.annotate_expr(statement.e)
-            statement.typ = statement.e.typ
+            statement.typ = statement.e.get_type()
             self.define_var(statement.x, statement.typ)
         elif isinstance(statement, Assert):
             self.annotate_expr(statement.e)

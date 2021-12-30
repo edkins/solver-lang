@@ -5,6 +5,12 @@ from typing import Union
 
 Ast = Union[str,lark.Tree]
 
+def token_value(ast: Ast) -> str:
+    if isinstance(ast, lark.Token):
+        return ast.value
+    else:
+        raise UnexpectedException()
+
 def to_expr(ast: Ast) -> Expr:
     if isinstance(ast, lark.Token):
         if ast.type == 'CNAME':
@@ -25,7 +31,7 @@ def to_expr(ast: Ast) -> Expr:
             e0, = ast.children
             return Builtin(f'.{ast.data}', to_expr(e0))
         elif ast.data == 'call':
-            f = ast.children[0].value
+            f = token_value(ast.children[0])
             xs = ast.children[1:]
             return Call(f, *[to_expr(x) for x in xs])
         elif ast.data == 'listing':
@@ -40,7 +46,7 @@ def to_statement(ast: Ast) -> Statement:
     if isinstance(ast, lark.Tree):
         if ast.data == 'assign':
             x, e = ast.children
-            return Assign(x.value, to_expr(e))
+            return Assign(token_value(x), to_expr(e))
         elif ast.data == 'assert':
             e, = ast.children
             return Assert(to_expr(e))
@@ -51,7 +57,7 @@ def to_statement(ast: Ast) -> Statement:
             return Return(to_expr(e))
         elif ast.data == 'fn':
             e0, e1, e2, e3 = ast.children
-            f = e0.value
+            f = token_value(e0)
             args = to_args(e1)
             ret = to_type(e2)
             body = to_statements(e3)
@@ -73,7 +79,7 @@ def to_args(ast: Ast) -> list[tuple[str,Type]]:
         for arg in ast.children:
             if isinstance(arg, lark.Tree) and arg.data == 'arg':
                 e0, e1 = arg.children
-                result.append((e0.value, to_type(e1)))
+                result.append((token_value(e0), to_type(e1)))
             else:
                 raise Unimplemented('Unimplemented arg')
         return result

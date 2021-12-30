@@ -1,5 +1,6 @@
 from __future__ import annotations
 from typing import Any, Union, Optional
+from stages.errors import UnexpectedException
 
 class Expr:
     def __init__(self):
@@ -20,6 +21,12 @@ class Expr:
     # Overridden
     def clone(self):
         raise Unimplemented()
+
+    def get_type(self) -> Type:
+        if isinstance(self.typ, Type):
+            return self.typ
+        else:
+            raise UnexpectedException('Should be annotated')
 
 class Int(Expr):
     def __init__(self, f:int):
