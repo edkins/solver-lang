@@ -42,3 +42,6 @@ class FuncNotDefinedException(Mistake):
 
 class TopLevelReturnException(Mistake):
     pass
+
+class ArgCountMismatchException(Mistake):
+    pass

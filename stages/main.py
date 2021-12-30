@@ -1,6 +1,7 @@
 from stages.grammar import grammar
 from stages.to_node import to_statements
 from stages.order_check import order_check_program
+from stages.annotate import annotate_program
 
 def run_script(text: str):
     ast = grammar.parse(text)
@@ -10,4 +11,6 @@ def run_script(text: str):
     print('Order checking')
     order_check_program(statements)
     print(statements)
-
+    print('Annotating')
+    annotate_program(statements)
+    print(statements)

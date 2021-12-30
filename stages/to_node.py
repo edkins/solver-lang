@@ -3,7 +3,7 @@ from stages.errors import *
 from stages.node import *
 from typing import Union
 
-Ast = Union[lark.Tree,lark.Token]
+Ast = Union[str,lark.Tree]
 
 def to_expr(ast: Ast) -> Expr:
     if isinstance(ast, lark.Token):

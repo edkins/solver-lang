@@ -1,5 +1,6 @@
 from stages.errors import *
 from stages.node import *
+from typing import Any
 
 class BareEnvItem:
     pass
@@ -108,9 +109,9 @@ class BareEnv:
         elif isinstance(statement, Assign):
             if statement.typ != None:
                 raise UnexpectedException('Node already type-annotated')
-            self.start_defining_var(x)
+            self.start_defining_var(statement.x)
             self.order_check_expr(statement.e)
-            self.finish_defining_var(x)
+            self.finish_defining_var(statement.x)
         elif isinstance(statement, Assert):
             self.order_check_expr(statement.e)
         elif isinstance(statement, Return):
