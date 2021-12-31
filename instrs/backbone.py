@@ -1,3 +1,4 @@
+from __future__ import annotations
 import z3
 from instrs.errors import *
 from instrs.misc import sequence_zs

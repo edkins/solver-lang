@@ -24,3 +24,6 @@ class AssertionException(Mistake):
 
 class OutOfBoundsException(Mistake):
     pass
+
+class VarAlreadyDefinedException(Mistake):
+    pass

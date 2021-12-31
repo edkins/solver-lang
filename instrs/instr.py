@@ -4,8 +4,11 @@ from instrs.errors import *
 import z3
 
 class Reg:
-    def __init__(self, name):
+    def __init__(self, name:str):
         self.name = name
+
+    def __repr__(self):
+        return self.name
 
 Val = Union[Reg, int, bool]
 
@@ -20,7 +23,7 @@ class RegFile:
         elif isinstance(v, bool):
             return z3.BoolVal(v), BBB
         elif isinstance(v, Reg):
-            if v in self.regs:
+            if v.name in self.regs:
                 bb = self.regs[v.name]
                 return bb.z3var(v.name), bb
             else:
@@ -28,7 +31,7 @@ class RegFile:
         else:
             raise UnexpectedException('Unrecognized value class')
 
-    def put(self, r:Reg, z:z3.ExprRef, bb:BBType):
+    def put(self, r:Reg, bb:BBType, z:z3.ExprRef):
         if r in self.regs:
             raise RegAlreadySetException(r.name)
         if bb.z3sort() != z.sort():
@@ -84,13 +87,30 @@ class RegFile:
 
 
 class Instr:
-    pass
+    # Overridden
+    def exec(self, rf:RegFile):
+        raise UnexpectedException()
+
+class Mov(Instr):
+    def __init__(self, dest:Reg, r:Val):
+        self.dest = dest
+        self.r = r
+
+    def __repr__(self):
+        return f'{self.dest} <- {self.r}'
+
+    def exec(self, rf:RegFile):
+        z,t = rf.get(self.r)
+        rf.put(self.dest, t, z)
 
 class Add(Instr):
     def __init__(self, dest:Reg, r0:Val, r1:Val):
         self.dest = dest
         self.r0 = r0
         self.r1 = r1
+
+    def __repr__(self):
+        return f'{self.dest} <- {self.r0} + {self.r1}'
 
     def exec(self, rf:RegFile):
         z0,t0 = rf.get(self.r0)
@@ -105,6 +125,9 @@ class Sub(Instr):
         self.r0 = r0
         self.r1 = r1
 
+    def __repr__(self):
+        return f'{self.dest} <- {self.r0} - {self.r1}'
+
     def exec(self, rf:RegFile):
         z0,t0 = rf.get(self.r0)
         z1,t1 = rf.get(self.r1)
@@ -118,6 +141,9 @@ class Mul(Instr):
         self.r0 = r0
         self.r1 = r1
 
+    def __repr__(self):
+        return f'{self.dest} <- {self.r0} * {self.r1}'
+
     def exec(self, rf:RegFile):
         z0,t0 = rf.get(self.r0)
         z1,t1 = rf.get(self.r1)
@@ -130,6 +156,9 @@ class Neg(Instr):
         self.dest = dest
         self.r = r
 
+    def __repr__(self):
+        return f'{self.dest} <- -{self.r}'
+
     def exec(self, rf:RegFile):
         z,t = rf.get(self.r)
         if t != BBZ:
@@ -141,6 +170,9 @@ class Lt(Instr):
         self.dest = dest
         self.r0 = r0
         self.r1 = r1
+
+    def __repr__(self):
+        return f'{self.dest} <- {self.r0} < {self.r1}'
 
     def exec(self, rf:RegFile):
         z0,t0 = rf.get(self.r0)
@@ -155,6 +187,9 @@ class Le(Instr):
         self.r0 = r0
         self.r1 = r1
 
+    def __repr__(self):
+        return f'{self.dest} <- {self.r0} <= {self.r1}'
+
     def exec(self, rf:RegFile):
         z0,t0 = rf.get(self.r0)
         z1,t1 = rf.get(self.r1)
@@ -168,6 +203,9 @@ class Eq(Instr):
         self.r0 = r0
         self.r1 = r1
         self.ne = ne
+
+    def __repr__(self):
+        return f'{self.dest} <- {self.r0} {"!=" if self.ne else "=="} {self.r1}'
 
     def exec(self, rf:RegFile):
         z0,t0 = rf.get(self.r0)
@@ -187,6 +225,9 @@ class Listing(Instr):
         self.dest = dest
         self.rs = rs
 
+    def __repr__(self):
+        return f'{self.dest} <- {self.rs}'
+
     def exec(self, rf:RegFile):
         zs = []
         ts = []
@@ -201,6 +242,9 @@ class Len(Instr):
     def __init__(self, dest:Reg, r:Val):
         self.dest = dest
         self.r = r
+
+    def __repr__(self):
+        return f'{self.dest} <- len {self.r}'
 
     def exec(self, rf:RegFile):
         zu,tu = rf.get(self.r)
@@ -224,6 +268,9 @@ class Lookup(Instr):
         self.dest = dest
         self.r0 = r0
         self.r1 = r1
+
+    def __repr__(self):
+        return f'{self.dest} <- {self.r0}[{self.r1}]'
 
     def exec(self, rf:RegFile):
         zu,tu = rf.get(self.r0)

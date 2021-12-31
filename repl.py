@@ -1,8 +1,8 @@
 import readline
 import sys
 import traceback
-from z3lang.session import Session
-from z3lang.errors import Mistake
+from instrs.session import Session
+from instrs.errors import Mistake
 
 def main():
     global grammar

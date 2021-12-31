@@ -1,6 +1,7 @@
 import lark
-from typing import Union
+from typing import Union, Optional
 from instrs.instr import *
+from instrs.errors import *
 
 Ast = Union[str,lark.Tree]
 
@@ -46,50 +47,81 @@ class InstrBuilder:
     def __init__(self):
         self.tempnum = 0
         self.instrs:list[Instr] = []
+        self.vars:set[str] = set()
 
-    def next_temporary(self) -> Reg:
-        result = Reg(f't{self.tempnum}')
+    def rollback(self, pos:int):
+        if pos >= 0 and pos <= len(self.instrs):
+            self.instrs = self.instrs[:pos]
+        else:
+            raise UnexpectedException('pos out of range')
+
+    def target_or_next_temporary(self, target:Optional[Reg]) -> Reg:
+        if isinstance(target, Reg):
+            return target
+        result = Reg(f'.t{self.tempnum}')
         self.tempnum += 1
         return result
 
-    def visit_expr(self, ast: Ast) -> Val:
+    def visit_statement(self, ast: Ast):
+        if isinstance(ast, lark.Tree):
+            x, e = ast.children
+            name = token_value(x)
+            if name in self.vars:
+                raise VarAlreadyDefinedException(name)
+            self.visit_expr(e, Reg(name))
+        else:
+            raise Unimplemented('Unimplemented statement non-tree')
+
+    
+    def emit(self, instr:Instr):
+        #print(instr)
+        self.instrs.append(instr)
+
+
+    def visit_expr(self, ast: Ast, target:Optional[Reg]) -> Val:
         if isinstance(ast, lark.Token):
             if ast.type == 'CNAME':
-                return Reg(ast.value)
+                result = Reg(ast.value)
             elif ast.type == 'INT':
-                return int(ast.value)
+                result = int(ast.value)
             elif ast.type == 'TRUE':
-                return True
+                result = True
             elif ast.type == 'FALSE':
-                return False
+                result = False
             else:
                 raise Unimplemented(f'Unimplemented expression token {ast.type}')
+
+            if isinstance(target, Reg):
+                self.emit(Mov(target, result))
+                return target
+            else:
+                return result
         elif isinstance(ast, lark.Tree):
             if ast.data in ['eq','ne','lt','le','gt','ge','add','sub','mul','lookup']:
                 e0, e1 = ast.children
-                v0 = self.visit_expr(e0)
-                v1 = self.visit_expr(e1)
-                dest = self.next_temporary()
-                self.instrs.append(binop(ast.data, dest, v0, v1))
+                v0 = self.visit_expr(e0,None)
+                v1 = self.visit_expr(e1,None)
+                dest = self.target_or_next_temporary(target)
+                self.emit(binop(ast.data, dest, v0, v1))
                 return dest
             elif ast.data in ['neg','len']:
                 e0, = ast.children
-                v0 = self.visit_expr(e0)
-                dest = self.next_temporary()
-                self.instrs.append(unary(ast.data, dest, v0))
+                v0 = self.visit_expr(e0,None)
+                dest = self.target_or_next_temporary(target)
+                self.emit(unary(ast.data, dest, v0))
                 return dest
             elif ast.data == 'call':
                 f = token_value(ast.children[0])
                 vs = []
                 for e in ast.children[1:]:
-                    vs.append(self.visit_expr(e))
+                    vs.append(self.visit_expr(e,None))
                 raise Unimplemented()
             elif ast.data == 'listing':
                 vs = []
                 for e in ast.children:
-                    vs.append(self.visit_expr(e))
-                dest = self.next_temporary()
-                self.instrs.append(Listing(dest, vs))
+                    vs.append(self.visit_expr(e,None))
+                dest = self.target_or_next_temporary(target)
+                self.emit(Listing(dest, vs))
                 return dest
             else:
                 raise Unimplemented(f'Unimplemented expression tree {ast.data}')
