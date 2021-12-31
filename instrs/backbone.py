@@ -1,5 +1,7 @@
 import z3
 from instrs.errors import *
+from instrs.misc import sequence_zs
+from typing import Optional
 
 class BBType:
     def __init__(self, sort:z3.SortRef):
@@ -31,21 +33,31 @@ class BBType:
         else:
             raise UnexpectedException('Index out of range')
 
-    # Overridden
-    def z3eq_is_eq(self) -> bool:
-        return True
-
     def z3eq(self, z0:z3.ExprRef, z1:z3.ExprRef) -> z3.ExprRef:
         if z0.sort() != self.z3sort() or z1.sort() != self.z3sort():
             raise UnexpectedException('z0 or z1 is the wrong sort in eq')
-        if self.z3eq_is_eq():
-            return z0 == z1
+        return z0 == z1
+
+    def z3coerce(self, t:BBType, z:z3.ExprRef) -> z3.ExprRef:
+        if t == self:
+            return z
         else:
-            return self.z3eq_structural(z0, z1)
+            t_opts = t.get_options()
+            result = None
+            for i in range(len(t_opts)):
+                result_opt = self.z3coerce_actual(t, t.z3accessor(i,z))
+                if result == None:
+                    result = result_opt
+                else:
+                    result = z3.If(t.z3recognizer(i,z), result_opt, result)
+            if isinstance(result, z3.ExprRef):
+                return result
+            else:
+                raise UnexpectedException('No result')
 
     # Overridden
-    def z3eq_structural(self, z0:z3.ExprRef, z1:z3.ExprRef) -> z3.ExprRef:
-        raise UnexpectedException()
+    def z3coerce_actual(self, t:BBType, z:z3.ExprRef) -> z3.ExprRef:
+        raise TypeException('Cannot coerce {t} to {self}')
 
 class BBInt(BBType):
     def __init__(self):
@@ -78,12 +90,14 @@ class BBArray(BBType):
     def __repr__(self) -> str:
         return f'array[{self.element}]'
 
-    def z3eq_is_eq(self) -> bool:
-        return self.element.z3eq_is_eq()
-
-    def z3eq_structural(self, z0:z3.ExprRef, z1:z3.ExprRef) -> z3.ExprRef:
-        i = z3.Int('.i')
-        return z3.And(z3.Length(z0) == z1.Length(z1), z3.ForAll([i], z3.Implies(z3.And(i >= 0, i < z3.Length(z0)), self.element.z3eq(z0[i], z1[i]))))
+    def z3coerce_actual(self, t:BBType, z:z3.ExprRef) -> z3.ExprRef:
+        if isinstance(t, BBArray):
+            raise Unimplemented('Cannot currently coerce array types')
+        elif isinstance(t, BBTuple):
+            zs = [self.element.z3coerce(t.members[i], t.z3member(i,z)) for i in range(t.tuple_len())]
+            return sequence_zs(self.element.z3sort(), zs)
+        else:
+            raise TypeException('Cannot coerce {t} to {self}')
 
 class BBTuple(BBType):
     def __init__(self, members:list[BBType]):
@@ -107,11 +121,16 @@ class BBTuple(BBType):
     def z3member(self, i:int, z:z3.ExprRef) -> z3.ExprRef:
         return self.z3sort().accessor(0,i)(z)
 
-    def z3eq_is_eq(self) -> bool:
-        return all((m.z3eq_is_eq() for m in self.members))
-
-    def z3eq_structural(self, z0:z3.ExprRef, z1:z3.ExprRef) -> z3.ExprRef:
-        return and_zs([self.members[i].z3eq(self.z3member(i,z0), self.z3member(i,z1)) for i in range(len(self.members))])
+    def z3coerce_actual(self, t:BBType, z:z3.ExprRef) -> z3.ExprRef:
+        if isinstance(t, BBTuple):
+            if t.tuple_len() != self.tuple_len():
+                raise TypeException('Cannot coerce {t} to {self} (tuples are different lengths)')
+            zs = [self.members[i].z3coerce(t.members[i], t.z3member(i,z)) for i in range(t.tuple_len())]
+            return self.z3tuple(zs)
+        elif isinstance(t, BBArray):
+            raise UnexpectedException('Cannot currently coerce {t} to {self} (unknown array length)')
+        else:
+            raise TypeException('Cannot coerce {t} to {self}')
 
 class BBUnion(BBType):
     def __init__(self, options:list[BBType]):
@@ -142,20 +161,75 @@ class BBUnion(BBType):
             raise UnexpectedException('Index out of range')
 
     def z3recognizer(self, i:int, z:z3.ExprRef) -> z3.ExprRef:
-        if i >= 0 and i < len(self.options):
-            return self.z3sort().recognizer(i)(z)
+        sort = self.z3sort()
+        if z.sort() != sort:
+            raise UnexpectedException('z is wrong sort, expected {sort} got {z.sort()}')
+        elif i >= 0 and i < len(self.options):
+            return sort.recognizer(i)(z)
         else:
             raise UnexpectedException('Index out of range')
+
+    def z3constructor(self, i:int, z:z3.ExprRef) -> z3.ExprRef:
+        if i >= 0 and i < len(self.options):
+            if z.sort() != self.options[i].z3sort():
+                raise UnexpectedException('z is wrong sort, expected {self.options[i].z3sort()} got {z.sort()}')
+            return self.z3sort().constructor(i)(z)
+        else:
+            raise UnexpectedException('Index out of range')
+
+    def z3coerce_actual(self, t:BBType, z:z3.ExprRef) -> z3.ExprRef:
+        result = None
+        opts = self.get_options()
+        for i in range(len(opts)):
+            try:
+                result = self.z3constructor(i, opts[i].z3coerce(t, z))
+            except TypeException:
+                pass
+        if isinstance(result, z3.ExprRef):
+            return result
+        else:
+            raise TypeException('Cannot coerce {t} to {self} (no options match)')
+
 
 BBZ = BBInt()
 BBB = BBBool()
 
+def pairwise_union(t0: BBType, t1: BBType) -> Optional[BBType]:
+    if isinstance(t0, BBUnion) or isinstance(t1, BBUnion):
+        raise UnexpectedException('Not expecting union types here')
+    elif t0 == t1:
+        return t1
+    elif isinstance(t0, BBTuple) and isinstance(t1, BBTuple):
+        if t0.tuple_len() != t1.tuple_len():
+            return None
+        ts = [flat_union([m0, m1]) for m0, m1 in zip(t0.members, t1.members)]
+        return BBTuple(ts)
+    elif isinstance(t0, BBArray) and isinstance(t1, BBArray):
+        return BBArray(flat_union([t0.element, t1.element]))
+    elif isinstance(t0, BBArray) and isinstance(t1, BBTuple):
+        element = flat_union([t0.element] + list(t1.members))
+        return BBArray(element)
+    elif isinstance(t0, BBTuple) and isinstance(t1, BBArray):
+        element = flat_union([t1.element] + list(t0.members))
+        return BBArray(element)
+    else:
+        return None
+
 def flat_union(bbs: list[BBType]):
-    result = []
+    result:list[BBType] = []
     for bb in bbs:
         for opt in bb.get_options():
-            if opt not in result:
-                result.append(opt)
+            addition = opt
+            i = 0
+            while i < len(result):
+                u = pairwise_union(result[i], addition)
+                if isinstance(u, BBType):
+                    result.pop(i)
+                    addition = u
+                else:
+                    i += 1
+            result.append(addition)
+
     if len(result) == 0:
         raise NoOptionsException()
     elif len(result) == 1:

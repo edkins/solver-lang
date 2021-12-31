@@ -162,6 +162,26 @@ class Le(Instr):
             raise TypeException('Can only compare ints')
         rf.put(self.dest, BBB, z0 <= z1)
 
+class Eq(Instr):
+    def __init__(self, dest:Reg, r0:Val, r1:Val, ne:bool):
+        self.dest = dest
+        self.r0 = r0
+        self.r1 = r1
+        self.ne = ne
+
+    def exec(self, rf:RegFile):
+        z0,t0 = rf.get(self.r0)
+        z1,t1 = rf.get(self.r1)
+        t = flat_union([t0, t1])
+        z0c = t.z3coerce(t0, z0)
+        z1c = t.z3coerce(t1, z1)
+        result = t.z3eq(z0c, z1c)
+        if self.ne:
+            rf.put(self.dest, BBB, z3.Not(result))
+        else:
+            rf.put(self.dest, BBB, result)
+
+
 class Listing(Instr):
     def __init__(self, dest:Reg, rs:list[Val]):
         self.dest = dest
@@ -213,7 +233,7 @@ class Lookup(Instr):
 
         ts = tu.get_options()
         result_type_options = []
-        possible_indices = [None] * len(ts)
+        possible_indices:list[list[int]] = [[] for i in range(len(ts))]
         for i in range(len(ts)):
             t = ts[i]
             if isinstance(t, BBTuple):
@@ -226,7 +246,7 @@ class Lookup(Instr):
             else:
                 raise TypeException(f'Cannot index into type {t}')
 
-        result_type = flat_union(type_options)
+        result_type = flat_union(result_type_options)
         n = len(ts)
         def munge(i:int,z:z3.ExprRef):
             t = ts[i]
@@ -240,7 +260,7 @@ class Lookup(Instr):
                 return result
             elif isinstance(t, BBArray):
                 rf.check(zi >= 0, 'Index must be nonnegative')
-                rf.check(z3.Impl(tu.z3recognizer(i), zi < z3.Length(z)), 'Index must be less than length of array')
+                rf.check(z3.Impl(tu.z3recognizer(i,z), zi < z3.Length(z)), 'Index must be less than length of array')
                 return z[zi]
             else:
                 raise TypeException(f'Cannot index into type {t}')
