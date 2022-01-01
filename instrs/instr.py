@@ -1,4 +1,4 @@
-from typing import Union, Callable, Any
+from typing import Union, Callable, Any, Optional
 import logging
 import z3
 from instrs.backbone import *
@@ -14,11 +14,27 @@ class Reg:
 
 Val = Union[Reg, int, bool]
 
+class StackFrame:
+    def __init__(self):
+        self.vars:set[str] = set()
+        self.ret:Optional[BBType] = None
+
 class RegFile:
     def __init__(self, solver:z3.Solver):
         self.regs:dict[str,BBType] = {}
         self.funcs:set[str] = set()
         self.solver = solver
+        self.stack = [StackFrame()]
+
+    def push(self):
+        self.solver.push()
+        self.stack.append(StackFrame())
+
+    def pop(self):
+        if len(self.stack) <= 1:
+            raise StackEmptyException()
+        for x in self.stack.pop().vars:
+            del self.regs[x]
 
     def get(self, v:Val) -> tuple[z3.ExprRef, BBType]:
         if isinstance(v, bool):
@@ -40,6 +56,7 @@ class RegFile:
         if bb.z3sort() != z.sort():
             raise UnexpectedException(f'backbone type sort {bb.z3sort()} does not match z3 expr sort {z.sort()}')
         self.regs[r.name] = bb
+        self.stack[-1].vars.add(r.name)
         self.solver.add(bb.z3var(r.name) == z)
 
     def put_union(self, r:Reg, bb:BBType, u:z3.ExprRef, ut:BBType, c:Callable[[int,z3.ExprRef],z3.ExprRef]):
@@ -49,6 +66,7 @@ class RegFile:
             raise UnexpectedException()
 
         self.regs[r.name] = bb
+        self.stack[-1].vars.add(r.name)
         ts = ut.get_options()
         for i in range(len(ts)):
             z0 = ut.z3accessor(i,u)
@@ -56,6 +74,12 @@ class RegFile:
             if bb.z3sort() != z1.sort():
                 raise UnexpectedException(f'backbone type sort {bb.z3sort()} does not match z3 expr sort {z1.sort()}')
             self.solver.add(z3.Implies(ut.z3recognizer(i,u), bb.z3var(r.name) == z1))
+
+    def put_arg(self, r:Reg, bb:BBType):
+        if r.name in self.regs:
+            raise RegAlreadySetException(r.name)
+        self.regs[r.name] = bb
+        self.stack[-1].vars.add(r.name)
 
     def check(self, z:z3.ExprRef, msg:str):
         if self.satisfiable(z3.Not(z)):
@@ -114,6 +138,14 @@ class RegFile:
             return r, False, BBTuple([])
         else:
             raise Unimplemented("Don't know what this is")
+
+    def set_return_type(self, bb:BBType):
+        if self.stack[-1].ret != None:
+            raise UnexpectedException('Already have a return type')
+        self.stack[-1].ret = bb
+
+    def get_return_type(self) -> Optional[BBType]:
+        return self.stack[-1].ret
 
 class Instr:
     # Overridden
@@ -402,7 +434,7 @@ class Arr(Instr):
 
         rf.put_union(self.dest, result_type, zu, tu, munge)
 
-class Assert:
+class Assert(Instr):
     def __init__(self, r:Val):
         self.r = r
 
@@ -414,3 +446,53 @@ class Assert:
         if t != BBB:
             raise TypeException('Can only assert boolean values')
         rf.check(z, 'assert')
+
+class Push(Instr):
+    def __repr__(self):
+        return 'push'
+
+    def exec(self, rf:RegFile):
+        rf.push()
+
+class Pop(Instr):
+    def __repr__(self):
+        return 'pop'
+
+    def exec(self, rf:RegFile):
+        rf.pop()
+
+class Arg(Instr):
+    def __init__(self, dest:Reg, typ:BBType):
+        self.dest = dest
+        self.typ = typ
+
+    def __repr__(self):
+        return f'arg {self.dest} : {self.typ}'
+
+    def exec(self, rf:RegFile):
+        rf.put_arg(self.dest, self.typ)
+
+class RetType(Instr):
+    def __init__(self, typ:BBType):
+        self.typ = typ
+
+    def __repr__(self):
+        return f'rettype {self.typ}'
+
+    def exec(self, rf:RegFile):
+        rf.set_return_type(self.typ)
+
+class Ret(Instr):
+    def __init__(self, r:Val):
+        self.r = r
+
+    def __repr__(self):
+        return f'ret {self.r}'
+
+    def exec(self, rf:RegFile):
+        typ = rf.get_return_type()
+        if not isinstance(typ, BBType):
+            raise NotInFunctionException()
+        z,t = rf.get(self.r)
+        zc = typ.z3coerce(t, z)
+        # TODO: do something with zc

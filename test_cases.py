@@ -69,6 +69,21 @@ def test_assert_false():
     assert x == 2
     """)
 
+def test_funcdef():
+    run_script("""
+fn myfunc() -> int {
+    return 0
+}
+""")
+
+def test_wrong_return_type():
+    with pytest.raises(TypeException):
+        run_script("""
+    fn myfunc() -> int {
+        return false
+    }
+    """)
+
 '''
 def test_square():
     run_script("""

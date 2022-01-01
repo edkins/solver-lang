@@ -3,10 +3,16 @@ import lark
 grammar = lark.Lark('''
 ?start: assign
         | assert
+        | pushfn
+        | pop
+        | return
         | sample
 
 assign: CNAME "=" expr
 assert: "assert" expr
+pushfn: "fn" CNAME "(" argcomma* arg? ")" "->" type "{"
+pop: "}"
+return: "return" expr
 sample: expr
 
 

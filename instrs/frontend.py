@@ -1,5 +1,6 @@
 import lark
 from typing import Union, Optional
+from instrs.backbone import *
 from instrs.instr import *
 from instrs.errors import *
 
@@ -49,7 +50,6 @@ class InstrBuilder:
     def __init__(self, is_repl:bool):
         self.tempnum = 0
         self.instrs:list[Instr] = []
-        self.vars:set[str] = set()
         self.is_repl = is_repl
 
     def rollback(self, pos:int):
@@ -65,19 +65,70 @@ class InstrBuilder:
         self.tempnum += 1
         return result
 
+    def visit_type(self, ast: Ast) -> BBType:
+        if isinstance(ast, lark.Token):
+            if ast.value == 'int':
+                return BBZ
+            elif ast.value == 'bool':
+                return BBB
+            else:
+                raise Unimplemented(f'Unimplemented type token {ast.value}')
+        elif isinstance(ast, lark.Tree):
+            if ast.data == 'range':
+                return BBZ
+            elif ast.data == 'tuple':
+                ts = [self.visit_type(e) for e in ast.children]
+                return BBTuple(ts)
+            elif ast.data == 'array':
+                t = self.visit_type(ast.children[0])
+                return BBArray(t)
+            elif ast.data == 'union':
+                ts = [self.visit_type(e) for e in ast.children]
+                return flat_union(ts)
+            else:
+                raise Unimplemented(f'Unimplemented type tree {ast.data}')
+        else:
+            raise Unimplemented('Unimplemented type non-tree non-token')
+
+
+    def visit_args(self, args: list[Ast]):
+        for arg in args:
+            if isinstance(arg, lark.Tree):
+                x, t = arg.children
+                name = token_value(x)
+                typ = self.visit_type(t)
+                self.emit(Arg(Reg(name), typ))
+            else:
+                raise Unimplemented('Unimplemented arg non-tree')
+
     def visit_statement(self, ast: Ast) -> Optional[Val]:
         if isinstance(ast, lark.Tree):
             if ast.data == 'assign':
                 x, e = ast.children
                 name = token_value(x)
-                if name in self.vars:
-                    raise VarAlreadyDefinedException(name)
                 self.visit_expr(e, Reg(name))
                 return Reg(name)
             elif ast.data == 'assert':
                 e, = ast.children
                 val = self.visit_expr(e, None)
                 self.emit(Assert(val))
+                return None
+            elif ast.data == 'pushfn':
+                f = token_value(ast.children[0])
+                args = ast.children[1:-1]
+                ret = ast.children[-1]
+                self.emit(Push())
+                self.visit_args(args)
+                self.emit(RetType(self.visit_type(ret)))
+                return None
+            elif ast.data == 'pop':
+                self.emit(Pop())
+                return None
+            elif ast.data == 'return':
+                e, = ast.children
+                val = self.visit_expr(e, None)
+                self.emit(Ret(val))
+                return None
             elif ast.data == 'sample':
                 if not self.is_repl:
                     raise ModeException('Bare expression only allowed in repl mode')

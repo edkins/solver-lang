@@ -33,3 +33,9 @@ class ParseException(Mistake):
 
 class ModeException(Mistake):
     pass
+
+class StackEmptyException(Mistake):
+    pass
+
+class NotInFunctionException(Mistake):
+    pass
