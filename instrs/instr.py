@@ -146,6 +146,8 @@ class Add(Instr):
         z1,t1 = rf.get(self.r1)
         if t0 != BBZ or t1 != BBZ:
             raise TypeException('Can only add ints')
+        if not isinstance(z0, z3.ArithRef) or not isinstance(z1, z3.ArithRef):
+            raise UnexpectedException(f'Expected ArithRef, got {type(z0)} and {type(z1)}')
         rf.put(self.dest, BBZ, z0 + z1)
 
 class Sub(Instr):
@@ -162,6 +164,8 @@ class Sub(Instr):
         z1,t1 = rf.get(self.r1)
         if t0 != BBZ or t1 != BBZ:
             raise TypeException('Can only subtract ints')
+        if not isinstance(z0, z3.ArithRef) or not isinstance(z1, z3.ArithRef):
+            raise UnexpectedException(f'Expected ArithRef, got {type(z0)} and {type(z1)}')
         rf.put(self.dest, BBZ, z0 - z1)
 
 class Mul(Instr):
@@ -178,6 +182,8 @@ class Mul(Instr):
         z1,t1 = rf.get(self.r1)
         if t0 != BBZ or t1 != BBZ:
             raise TypeException('Can only multiply ints')
+        if not isinstance(z0, z3.ArithRef) or not isinstance(z1, z3.ArithRef):
+            raise UnexpectedException(f'Expected ArithRef, got {type(z0)} and {type(z1)}')
         rf.put(self.dest, BBZ, z0 * z1)
 
 class Neg(Instr):
@@ -192,6 +198,8 @@ class Neg(Instr):
         z,t = rf.get(self.r)
         if t != BBZ:
             raise TypeException('Can only negate integers')
+        if not isinstance(z, z3.ArithRef):
+            raise UnexpectedException(f'Expected ArithRef, got {type(z)}')
         rf.put(self.dest, BBZ, -z)
 
 class Lt(Instr):
@@ -208,6 +216,8 @@ class Lt(Instr):
         z1,t1 = rf.get(self.r1)
         if t0 != BBZ or t1 != BBZ:
             raise TypeException('Can only compare ints')
+        if not isinstance(z0, z3.ArithRef) or not isinstance(z1, z3.ArithRef):
+            raise UnexpectedException(f'Expected ArithRef, got {type(z0)} and {type(z1)}')
         rf.put(self.dest, BBB, z0 < z1)
 
 class Le(Instr):
@@ -224,6 +234,8 @@ class Le(Instr):
         z1,t1 = rf.get(self.r1)
         if t0 != BBZ or t1 != BBZ:
             raise TypeException('Can only compare ints')
+        if not isinstance(z0, z3.ArithRef) or not isinstance(z1, z3.ArithRef):
+            raise UnexpectedException(f'Expected ArithRef, got {type(z0)} and {type(z1)}')
         rf.put(self.dest, BBB, z0 <= z1)
 
 class Eq(Instr):
@@ -335,7 +347,9 @@ class Lookup(Instr):
                     result = z3.If(zi == z3.IntVal(index), t.z3member(index,z), result)
                 return result
             elif isinstance(t, BBArray):
-                rf.check(zi >= 0, 'Index must be nonnegative')
+                if not isinstance(z, z3.SeqRef):
+                    raise UnexpectedException(f'Expected SeqRef got {type(z)}')
+                rf.check(zi >= z3.IntVal(0), 'Index must be nonnegative')
                 rf.check(z3.Implies(tu.z3recognizer(i,z), zi < z3.Length(z)), 'Index must be less than length of array')
                 return z[zi]
             else:

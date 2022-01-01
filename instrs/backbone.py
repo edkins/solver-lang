@@ -5,11 +5,9 @@ from instrs.misc import sequence_zs
 from typing import Optional, Any
 
 class BBType:
-    def __init__(self, sort:z3.SortRef):
-        self.sort = sort
-
+    # Overridden
     def z3sort(self) -> z3.SortRef:
-        return self.sort
+        raise UnexpectedException()
 
     def z3var(self, name) -> z3.ExprRef:
         return z3.Const(name, self.z3sort())
@@ -65,8 +63,8 @@ class BBType:
         raise UnexpectedException()
 
 class BBInt(BBType):
-    def __init__(self):
-        BBType.__init__(self, z3.IntSort())
+    def z3sort(self) -> z3.SortRef:
+        return z3.IntSort()
 
     def __eq__(self, other) -> bool:
         return isinstance(other, BBInt)
@@ -75,13 +73,14 @@ class BBInt(BBType):
         return 'int'
 
     def z3_to_python(self, z:z3.ExprRef) -> int:
-        if z.sort() != self.z3sort():
-            raise UnexpectedException('wrong sort')
-        return z.as_long()
+        if isinstance(z, z3.IntNumRef):
+            return z.as_long()
+        else:
+            raise UnexpectedException('not a const int')
 
 class BBBool(BBType):
-    def __init__(self):
-        BBType.__init__(self, z3.BoolSort())
+    def z3sort(self) -> z3.SortRef:
+        return z3.BoolSort()
 
     def __eq__(self, other) -> bool:
         return isinstance(other, BBBool)
@@ -101,8 +100,11 @@ class BBBool(BBType):
 
 class BBArray(BBType):
     def __init__(self, element:BBType):
-        BBType.__init__(self, z3.SeqSort(element.z3sort()))
+        self.sort = z3.SeqSort(element.z3sort())
         self.element = element
+
+    def z3sort(self) -> z3.SortRef:
+        return self.sort
 
     def __eq__(self, other) -> bool:
         return isinstance(other, BBArray) and self.element == other.element
@@ -112,6 +114,8 @@ class BBArray(BBType):
 
     def z3coerce_actual(self, t:BBType, z:z3.ExprRef) -> z3.ExprRef:
         if isinstance(t, BBArray):
+            if not isinstance(z, z3.SeqRef):
+                raise UnexpectedException(f'Expected SeqRef at this point, got {type(z)}')
             x = t.z3var('.x')
             name = 'coerce[{self},{t}]'
             f = z3.RecFunction(name, t.z3sort(), self.z3sort())
@@ -131,15 +135,18 @@ class BBArray(BBType):
             raise TypeException('Cannot coerce {t} to {self}')
 
     def z3_to_python(self, z:z3.ExprRef) -> Any:
-        if z.sort() != self.z3sort():
-            raise UnexpectedException('wrong sort')
+        if not isinstance(z, z3.SeqRef):
+            raise UnexpectedException(f'Expected SeqRef at this point, got {type(z)}')
         n = z3.simplify(z3.Length(z)).as_long()
         return [self.element.z3_to_python(z3.simplify(z[i])) for i in range(n)]
 
 class BBTuple(BBType):
     def __init__(self, members:list[BBType]):
         self.members = tuple(members)
-        BBType.__init__(self, z3.TupleSort(str(self), [m.z3sort() for m in members])[0])
+        self.sort = z3.TupleSort(str(self), [m.z3sort() for m in members])[0]
+
+    def z3sort(self) -> z3.DatatypeSortRef:
+        return self.sort
 
     def __repr__(self) -> str:
         return f'tuple[{",".join((str(m) for m in self.members))}]'
@@ -186,7 +193,10 @@ class BBUnion(BBType):
             if isinstance(opt, BBUnion):
                 raise UnexpectedException('Cannot take union of unions. Use flat_union instead')
         self.options = tuple(options)
-        BBType.__init__(self, z3.DisjointSum(str(self), [m.z3sort() for m in self.options])[0])
+        self.sort = z3.DisjointSum(str(self), [m.z3sort() for m in self.options])[0]
+
+    def z3sort(self) -> z3.DatatypeSortRef:
+        return self.sort
 
     def __repr__(self) -> str:
         return f'union[{",".join((str(m) for m in self.options))}]'
