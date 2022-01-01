@@ -4,6 +4,12 @@ from instrs.errors import *
 from instrs.misc import sequence_zs
 from typing import Optional, Any
 
+class Z3FunctionRequirement:
+    def __init__(self, f:z3.FuncDeclRef, var:z3.ExprRef, rule:z3.ExprRef):
+        self.f = f
+        self.var = var
+        self.rule = rule
+
 class BBType:
     def __init__(self, sort:z3.SortRef):
         self.sort = sort
@@ -39,25 +45,27 @@ class BBType:
             raise UnexpectedException('z0 or z1 is the wrong sort in eq')
         return z0 == z1
 
-    def z3coerce(self, t:BBType, z:z3.ExprRef) -> z3.ExprRef:
+    def z3coerce(self, t:BBType, z:z3.ExprRef) -> tuple[z3.ExprRef,list[Z3FunctionRequirement]]:
         if t == self:
-            return z
+            return z, []
         else:
             t_opts = t.get_options()
             result = None
+            result_fs = []
             for i in range(len(t_opts)):
-                result_opt = self.z3coerce_actual(t, t.z3accessor(i,z))
+                result_opt,fs = self.z3coerce_actual(t, t.z3accessor(i,z))
+                result_fs += fs
                 if result == None:
                     result = result_opt
                 else:
                     result = z3.If(t.z3recognizer(i,z), result_opt, result)
             if isinstance(result, z3.ExprRef):
-                return result
+                return result, result_fs
             else:
                 raise UnexpectedException('No result')
 
     # Overridden
-    def z3coerce_actual(self, t:BBType, z:z3.ExprRef) -> z3.ExprRef:
+    def z3coerce_actual(self, t:BBType, z:z3.ExprRef) -> tuple[z3.ExprRef,list[Z3FunctionRequirement]]:
         raise TypeException('Cannot coerce {t} to {self}')
 
     # Overridden
@@ -110,12 +118,25 @@ class BBArray(BBType):
     def __repr__(self) -> str:
         return f'array[{self.element}]'
 
-    def z3coerce_actual(self, t:BBType, z:z3.ExprRef) -> z3.ExprRef:
+    def z3coerce_actual(self, t:BBType, z:z3.ExprRef) -> tuple[z3.ExprRef,list[Z3FunctionRequirement]]:
         if isinstance(t, BBArray):
-            raise Unimplemented('Cannot currently coerce array types')
+            x = t.z3var('.x')
+            name = 'coerce[{self},{t}]'
+            f = z3.RecFunction(name, t.z3sort(), self.z3sort())
+            zc, fs = self.element.z3coerce(t.element, z[0])
+            z3.RecAddDefinition(f, [x], z3.If(
+                x == z3.Empty(t.z3sort()),
+                z3.Empty(self.z3sort()),
+                z3.Concat(z3.Unit(zc), f(z3.SubSeq(x, 1, z3.Length(x)-1)))))
+            return f(z), fs
         elif isinstance(t, BBTuple):
-            zs = [self.element.z3coerce(t.members[i], t.z3member(i,z)) for i in range(t.tuple_len())]
-            return sequence_zs(self.element.z3sort(), zs)
+            zs = []
+            fs = []
+            for i in range(t.tuple_len()):
+                z,f = self.element.z3coerce(t.members[i], t.z3member(i,z))
+                zs.append(z)
+                fs += f
+            return sequence_zs(self.element.z3sort(), zs), fs
         else:
             raise TypeException('Cannot coerce {t} to {self}')
 
@@ -147,12 +168,17 @@ class BBTuple(BBType):
     def z3member(self, i:int, z:z3.ExprRef) -> z3.ExprRef:
         return self.z3sort().accessor(0,i)(z)
 
-    def z3coerce_actual(self, t:BBType, z:z3.ExprRef) -> z3.ExprRef:
+    def z3coerce_actual(self, t:BBType, z:z3.ExprRef) -> tuple[z3.ExprRef,list[Z3FunctionRequirement]]:
         if isinstance(t, BBTuple):
             if t.tuple_len() != self.tuple_len():
                 raise TypeException('Cannot coerce {t} to {self} (tuples are different lengths)')
-            zs = [self.members[i].z3coerce(t.members[i], t.z3member(i,z)) for i in range(t.tuple_len())]
-            return self.z3tuple(zs)
+            zs = []
+            fs = []
+            for i in range(t.tuple_len()):
+                z,f = self.members[i].z3coerce(t.members[i], t.z3member(i,z))
+                zs.append(z)
+                fs += f
+            return self.z3tuple(zs), fs
         elif isinstance(t, BBArray):
             raise UnexpectedException('Cannot currently coerce {t} to {self} (unknown array length)')
         else:
@@ -209,18 +235,15 @@ class BBUnion(BBType):
         else:
             raise UnexpectedException('Index out of range')
 
-    def z3coerce_actual(self, t:BBType, z:z3.ExprRef) -> z3.ExprRef:
-        result = None
+    def z3coerce_actual(self, t:BBType, z:z3.ExprRef) -> tuple[z3.ExprRef,list[Z3FunctionRequirement]]:
         opts = self.get_options()
         for i in range(len(opts)):
             try:
-                result = self.z3constructor(i, opts[i].z3coerce(t, z))
+                z, fs = opts[i].z3coerce(t, z)
+                return self.z3constructor(i, z), fs
             except TypeException:
                 pass
-        if isinstance(result, z3.ExprRef):
-            return result
-        else:
-            raise TypeException('Cannot coerce {t} to {self} (no options match)')
+        raise TypeException('Cannot coerce {t} to {self} (no options match)')
 
     def z3_to_python(self, z:z3.ExprRef) -> Any:
         if z.sort() != self.z3sort():

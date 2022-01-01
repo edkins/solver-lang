@@ -1,8 +1,9 @@
 from typing import Union, Callable, Any
+import logging
+import z3
 from instrs.backbone import *
 from instrs.errors import *
 from instrs.misc import sequence_zs
-import z3
 
 class Reg:
     def __init__(self, name:str):
@@ -16,7 +17,15 @@ Val = Union[Reg, int, bool]
 class RegFile:
     def __init__(self, solver:z3.Solver):
         self.regs:dict[str,BBType] = {}
+        self.funcs:set[str] = set()
         self.solver = solver
+
+    def define_funcs(self, funcs: list[Z3FunctionRequirement]):
+        for func in funcs:
+            if func.f.name() not in self.funcs:
+                self.funcs.add(func.f.name())
+                logging.info('Defining fn {func.f.name()}')
+                z3.RecAddDefinition(func.f, [func.var], func.rule)
 
     def get(self, v:Val) -> tuple[z3.ExprRef, BBType]:
         if isinstance(v, bool):
@@ -238,8 +247,10 @@ class Eq(Instr):
         z0,t0 = rf.get(self.r0)
         z1,t1 = rf.get(self.r1)
         t = flat_union([t0, t1])
-        z0c = t.z3coerce(t0, z0)
-        z1c = t.z3coerce(t1, z1)
+        z0c,fs = t.z3coerce(t0, z0)
+        rf.define_funcs(fs)
+        z1c,fs = t.z3coerce(t1, z1)
+        rf.define_funcs(fs)
         result = t.z3eq(z0c, z1c)
         if self.ne:
             rf.put(self.dest, BBB, z3.Not(result))
@@ -360,7 +371,7 @@ class Arr(Instr):
             elif isinstance(t, BBArray):
                 element_types.append(t.element)
             else:
-                raise TypeException('Can only convert arrays and tuples to arr, not {t}')
+                raise TypeException(f'Can only convert arrays and tuples to arr, not {t}')
         if len(element_types) == 0:
             raise TypeException('Unknown array type (probably empty tuple)')
         element_type = flat_union(element_types)
@@ -371,7 +382,12 @@ class Arr(Instr):
             if z.sort() != t.z3sort():
                 raise UnexpectedException('sort mismatch')
             if isinstance(t, BBTuple):
-                return sequence_zs(element_type.z3sort(), [element_type.z3coerce(t.members[j], t.z3member(j,z)) for j in range(t.tuple_len())])
+                zs = []
+                for j in range(t.tuple_len()):
+                    zc, fs = element_type.z3coerce(t.members[j], t.z3member(j,z))
+                    zs.append(zc)
+                    rf.define_funcs(fs)
+                return sequence_zs(element_type.z3sort(), zs)
             elif isinstance(t, BBArray):
                 return z
             else:
