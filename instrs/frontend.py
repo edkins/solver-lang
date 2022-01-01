@@ -74,6 +74,10 @@ class InstrBuilder:
                     raise VarAlreadyDefinedException(name)
                 self.visit_expr(e, Reg(name))
                 return Reg(name)
+            elif ast.data == 'assert':
+                e, = ast.children
+                val = self.visit_expr(e, None)
+                self.emit(Assert(val))
             elif ast.data == 'sample':
                 if not self.is_repl:
                     raise ModeException('Bare expression only allowed in repl mode')

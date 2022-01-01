@@ -47,14 +47,27 @@ def test_array_of_tuple_and_longer_tuple():
 def test_not_actually_empty_array():
     assert "() : tuple[]\n" == run_script("arr[]")
 
-def mismatched_eq():
+def test_mismatched_eq():
     assert "False : bool\n" == run_script("1 == true")
 
-def mismatched_tuple_eq():
+def test_mismatched_tuple_eq():
     assert "False : bool\n" == run_script("1 == [1]")
 
-def tuple_eq_array():
+def test_tuple_eq_array():
     assert "True : bool\n" == run_script("[1] == arr[1]")
+
+def test_assert_true():
+    run_script("""
+x = 1
+assert x == 1
+""")
+
+def test_assert_false():
+    with pytest.raises(AssertionException):
+        run_script("""
+    x = 1
+    assert x == 2
+    """)
 
 '''
 def test_square():

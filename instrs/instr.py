@@ -401,3 +401,16 @@ class Arr(Instr):
                 raise TypeException(f'Cannot take length of {t}')
 
         rf.put_union(self.dest, result_type, zu, tu, munge)
+
+class Assert:
+    def __init__(self, r:Val):
+        self.r = r
+
+    def __repr__(self):
+        return f'assert {self.r}'
+
+    def exec(self, rf:RegFile):
+        z,t = rf.get(self.r)
+        if t != BBB:
+            raise TypeException('Can only assert boolean values')
+        rf.check(z, 'assert')

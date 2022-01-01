@@ -2,9 +2,11 @@ import lark
 
 grammar = lark.Lark('''
 ?start: assign
+        | assert
         | sample
 
 assign: CNAME "=" expr
+assert: "assert" expr
 sample: expr
 
 
