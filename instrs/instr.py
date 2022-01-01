@@ -1,6 +1,7 @@
 from typing import Union, Callable, Any
 from instrs.backbone import *
 from instrs.errors import *
+from instrs.misc import sequence_zs
 import z3
 
 class Reg:
@@ -18,10 +19,10 @@ class RegFile:
         self.solver = solver
 
     def get(self, v:Val) -> tuple[z3.ExprRef, BBType]:
-        if isinstance(v, int):
-            return z3.IntVal(v), BBZ
-        elif isinstance(v, bool):
+        if isinstance(v, bool):
             return z3.BoolVal(v), BBB
+        elif isinstance(v, int):
+            return z3.IntVal(v), BBZ
         elif isinstance(v, Reg):
             if v.name in self.regs:
                 bb = self.regs[v.name]
@@ -103,10 +104,10 @@ class RegFile:
                     raise UnexpectedException('Unreachable')
             finally:
                 self.solver.pop()
-        elif isinstance(r, int):
-            return r, False, BBZ
         elif isinstance(r, bool):
             return r, False, BBB
+        elif isinstance(r, int):
+            return r, False, BBZ
         elif r == None:
             return r, False, BBTuple([])
         else:
@@ -333,9 +334,47 @@ class Lookup(Instr):
                 return result
             elif isinstance(t, BBArray):
                 rf.check(zi >= 0, 'Index must be nonnegative')
-                rf.check(z3.Impl(tu.z3recognizer(i,z), zi < z3.Length(z)), 'Index must be less than length of array')
+                rf.check(z3.Implies(tu.z3recognizer(i,z), zi < z3.Length(z)), 'Index must be less than length of array')
                 return z[zi]
             else:
                 raise TypeException(f'Cannot index into type {t}')
+
+        rf.put_union(self.dest, result_type, zu, tu, munge)
+
+class Arr(Instr):
+    def __init__(self, dest:Reg, r:Val):
+        self.dest = dest
+        self.r = r
+
+    def __repr__(self):
+        return f'{self.dest} <- arr {self.r}'
+
+    def exec(self, rf:RegFile):
+        zu,tu = rf.get(self.r)
+        ts = tu.get_options()
+
+        element_types:list[BBType] = []
+        for t in ts:
+            if isinstance(t, BBTuple):
+                element_types += t.members
+            elif isinstance(t, BBArray):
+                element_types.append(t.element)
+            else:
+                raise TypeException('Can only convert arrays and tuples to arr, not {t}')
+        if len(element_types) == 0:
+            raise TypeException('Unknown array type (probably empty tuple)')
+        element_type = flat_union(element_types)
+        result_type = BBArray(element_type)
+
+        def munge(i:int,z:z3.ExprRef):
+            t = ts[i]
+            if z.sort() != t.z3sort():
+                raise UnexpectedException('sort mismatch')
+            if isinstance(t, BBTuple):
+                return sequence_zs(element_type.z3sort(), [element_type.z3coerce(t.members[j], t.z3member(j,z)) for j in range(t.tuple_len())])
+            elif isinstance(t, BBArray):
+                return z
+            else:
+                raise TypeException(f'Cannot take length of {t}')
 
         rf.put_union(self.dest, result_type, zu, tu, munge)

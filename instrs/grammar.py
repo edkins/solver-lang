@@ -65,6 +65,7 @@ lookup: term "[" expr "]"
      | TRUE
      | FALSE
      | len
+     | arr
      | call
      | CNAME
      | "(" expr ")"
@@ -72,6 +73,7 @@ lookup: term "[" expr "]"
      | neg
 
 len: "len" lexpr
+arr: "arr" lexpr
 call: CNAME "(" exprcomma* expr? ")"
 ?exprcomma: expr ","
 

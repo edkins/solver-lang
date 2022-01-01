@@ -40,6 +40,8 @@ def unary(name:str, dest:Reg, v:Val) -> Instr:
         return Neg(dest, v)
     elif name == 'len':
         return Len(dest, v)
+    elif name == 'arr':
+        return Arr(dest, v)
     else:
         raise Unimplemented(f'Unary {name}')
 
@@ -115,7 +117,7 @@ class InstrBuilder:
                 dest = self.target_or_next_temporary(target)
                 self.emit(binop(ast.data, dest, v0, v1))
                 return dest
-            elif ast.data in ['neg','len']:
+            elif ast.data in ['neg','len','arr']:
                 e0, = ast.children
                 v0 = self.visit_expr(e0,None)
                 dest = self.target_or_next_temporary(target)

@@ -122,7 +122,8 @@ class BBArray(BBType):
     def z3_to_python(self, z:z3.ExprRef) -> Any:
         if z.sort() != self.z3sort():
             raise UnexpectedException('wrong sort')
-        return z    # TODO: turn into python list
+        n = z3.simplify(z3.Length(z)).as_long()
+        return [self.element.z3_to_python(z3.simplify(z[i])) for i in range(n)]
 
 class BBTuple(BBType):
     def __init__(self, members:list[BBType]):
@@ -182,12 +183,12 @@ class BBUnion(BBType):
     def __eq__(self, other) -> bool:
         return isinstance(other, BBUnion) and self.options == other.options
 
-    def z3accessor(self, i:int, z:z3.ExprRef) -> list[z3.ExprRef]:
+    def z3accessor(self, i:int, z:z3.ExprRef) -> z3.ExprRef:
         sort = self.z3sort()
         if z.sort() != sort:
             raise UnexpectedException('z is wrong sort, expected {sort} got {z.sort()}')
         elif i >= 0 and i < len(self.options):
-            return [sort.accessor(i,0)(z) for i in range(len(self.options))]
+            return sort.accessor(i,0)(z)
         else:
             raise UnexpectedException('Index out of range')
 
@@ -224,7 +225,10 @@ class BBUnion(BBType):
     def z3_to_python(self, z:z3.ExprRef) -> Any:
         if z.sort() != self.z3sort():
             raise UnexpectedException('wrong sort')
-        return z     # TODO: return python value
+        for i in range(len(self.options)):
+            if z3.is_true(z3.simplify(self.z3recognizer(i,z))):
+                return self.options[i].z3_to_python(z3.simplify(self.z3accessor(i,z)))
+        raise UnexpectedException('Not a const sum value')
 
 
 BBZ = BBInt()
