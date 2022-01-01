@@ -2,8 +2,10 @@ import lark
 
 grammar = lark.Lark('''
 ?start: assign
+        | sample
 
 assign: CNAME "=" expr
+sample: expr
 
 
 ?argcomma: arg ","

@@ -44,10 +44,11 @@ def unary(name:str, dest:Reg, v:Val) -> Instr:
         raise Unimplemented(f'Unary {name}')
 
 class InstrBuilder:
-    def __init__(self):
+    def __init__(self, is_repl:bool):
         self.tempnum = 0
         self.instrs:list[Instr] = []
         self.vars:set[str] = set()
+        self.is_repl = is_repl
 
     def rollback(self, pos:int):
         if pos >= 0 and pos <= len(self.instrs):
@@ -62,13 +63,23 @@ class InstrBuilder:
         self.tempnum += 1
         return result
 
-    def visit_statement(self, ast: Ast):
+    def visit_statement(self, ast: Ast) -> Optional[Val]:
         if isinstance(ast, lark.Tree):
-            x, e = ast.children
-            name = token_value(x)
-            if name in self.vars:
-                raise VarAlreadyDefinedException(name)
-            self.visit_expr(e, Reg(name))
+            if ast.data == 'assign':
+                x, e = ast.children
+                name = token_value(x)
+                if name in self.vars:
+                    raise VarAlreadyDefinedException(name)
+                self.visit_expr(e, Reg(name))
+                return Reg(name)
+            elif ast.data == 'sample':
+                if not self.is_repl:
+                    raise ModeException('Bare expression only allowed in repl mode')
+                e, = ast.children
+                val = self.visit_expr(e, None)
+                return val
+            else:
+                raise Unimplemented('Unimplemented statement tree {ast.data}')
         else:
             raise Unimplemented('Unimplemented statement non-tree')
 
@@ -81,7 +92,7 @@ class InstrBuilder:
     def visit_expr(self, ast: Ast, target:Optional[Reg]) -> Val:
         if isinstance(ast, lark.Token):
             if ast.type == 'CNAME':
-                result = Reg(ast.value)
+                result:Val = Reg(ast.value)
             elif ast.type == 'INT':
                 result = int(ast.value)
             elif ast.type == 'TRUE':

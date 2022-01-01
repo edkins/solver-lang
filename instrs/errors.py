@@ -27,3 +27,9 @@ class OutOfBoundsException(Mistake):
 
 class VarAlreadyDefinedException(Mistake):
     pass
+
+class ParseException(Mistake):
+    pass
+
+class ModeException(Mistake):
+    pass

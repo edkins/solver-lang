@@ -6,7 +6,7 @@ from instrs.errors import Mistake
 
 def main():
     global grammar
-    session = Session(sys.stdout)
+    session = Session(sys.stdout, True)
     while True:
         text = input(session.prompt())
         try:

@@ -1,4 +1,4 @@
-from typing import Union, Callable
+from typing import Union, Callable, Any
 from instrs.backbone import *
 from instrs.errors import *
 import z3
@@ -32,7 +32,7 @@ class RegFile:
             raise UnexpectedException('Unrecognized value class')
 
     def put(self, r:Reg, bb:BBType, z:z3.ExprRef):
-        if r in self.regs:
+        if r.name in self.regs:
             raise RegAlreadySetException(r.name)
         if bb.z3sort() != z.sort():
             raise UnexpectedException(f'backbone type sort {bb.z3sort()} does not match z3 expr sort {z.sort()}')
@@ -85,6 +85,32 @@ class RegFile:
             raise UnexpectedException('Unreachable in get_possible_index_values')
         return results
 
+    def get_reg_python_value(self, r:Optional[Val]) -> tuple[Any,bool,BBType]:
+        if isinstance(r, Reg):
+            z,t = self.get(r)
+            self.solver.push()
+            try:
+                if self.solver.check() == z3.sat:
+                    value = self.solver.model()[z]
+                    self.solver.push()
+                    try:
+                        self.solver.add(z != value)
+                        more = self.solver.check() == z3.sat
+                        return t.z3_to_python(value), more, t
+                    finally:
+                        self.solver.pop()
+                else:
+                    raise UnexpectedException('Unreachable')
+            finally:
+                self.solver.pop()
+        elif isinstance(r, int):
+            return r, False, BBZ
+        elif isinstance(r, bool):
+            return r, False, BBB
+        elif r == None:
+            return r, False, BBTuple([])
+        else:
+            raise Unimplemented("Don't know what this is")
 
 class Instr:
     # Overridden

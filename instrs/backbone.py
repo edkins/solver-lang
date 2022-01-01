@@ -2,7 +2,7 @@ from __future__ import annotations
 import z3
 from instrs.errors import *
 from instrs.misc import sequence_zs
-from typing import Optional
+from typing import Optional, Any
 
 class BBType:
     def __init__(self, sort:z3.SortRef):
@@ -60,6 +60,10 @@ class BBType:
     def z3coerce_actual(self, t:BBType, z:z3.ExprRef) -> z3.ExprRef:
         raise TypeException('Cannot coerce {t} to {self}')
 
+    # Overridden
+    def z3_to_python(self, z:z3.ExprRef) -> Any:
+        raise UnexpectedException()
+
 class BBInt(BBType):
     def __init__(self):
         BBType.__init__(self, z3.IntSort())
@@ -70,6 +74,11 @@ class BBInt(BBType):
     def __repr__(self) -> str:
         return 'int'
 
+    def z3_to_python(self, z:z3.ExprRef) -> int:
+        if z.sort() != self.z3sort():
+            raise UnexpectedException('wrong sort')
+        return z.as_long()
+
 class BBBool(BBType):
     def __init__(self):
         BBType.__init__(self, z3.BoolSort())
@@ -79,6 +88,16 @@ class BBBool(BBType):
 
     def __repr__(self) -> str:
         return 'bool'
+
+    def z3_to_python(self, z:z3.ExprRef) -> bool:
+        if z.sort() != self.z3sort():
+            raise UnexpectedException('wrong sort')
+        elif z3.is_true(z):
+            return True
+        elif z3.is_false(z):
+            return False
+        else:
+            raise UnexpectedException('not a const bool')
 
 class BBArray(BBType):
     def __init__(self, element:BBType):
@@ -100,10 +119,15 @@ class BBArray(BBType):
         else:
             raise TypeException('Cannot coerce {t} to {self}')
 
+    def z3_to_python(self, z:z3.ExprRef) -> Any:
+        if z.sort() != self.z3sort():
+            raise UnexpectedException('wrong sort')
+        return z    # TODO: turn into python list
+
 class BBTuple(BBType):
     def __init__(self, members:list[BBType]):
         self.members = tuple(members)
-        BBType.__init__(self, z3.TupleSort(str(self), [m.z3sort() for m in members]))
+        BBType.__init__(self, z3.TupleSort(str(self), [m.z3sort() for m in members])[0])
 
     def __repr__(self) -> str:
         return f'tuple[{",".join((str(m) for m in self.members))}]'
@@ -133,6 +157,12 @@ class BBTuple(BBType):
         else:
             raise TypeException('Cannot coerce {t} to {self}')
 
+    def z3_to_python(self, z:z3.ExprRef) -> tuple:
+        if z.sort() != self.z3sort():
+            raise UnexpectedException('wrong sort')
+        return tuple((self.members[i].z3_to_python(z3.simplify(self.z3member(i,z))) for i in range(len(self.members))))
+
+
 class BBUnion(BBType):
     def __init__(self, options:list[BBType]):
         if len(options) < 2:
@@ -141,7 +171,7 @@ class BBUnion(BBType):
             if isinstance(opt, BBUnion):
                 raise UnexpectedException('Cannot take union of unions. Use flat_union instead')
         self.options = tuple(options)
-        BBType.__init__(self, z3.DisjointSum(str(self), [m.z3sort() for m in self.options]))
+        BBType.__init__(self, z3.DisjointSum(str(self), [m.z3sort() for m in self.options])[0])
 
     def __repr__(self) -> str:
         return f'union[{",".join((str(m) for m in self.options))}]'
@@ -190,6 +220,11 @@ class BBUnion(BBType):
             return result
         else:
             raise TypeException('Cannot coerce {t} to {self} (no options match)')
+
+    def z3_to_python(self, z:z3.ExprRef) -> Any:
+        if z.sort() != self.z3sort():
+            raise UnexpectedException('wrong sort')
+        return z     # TODO: return python value
 
 
 BBZ = BBInt()
