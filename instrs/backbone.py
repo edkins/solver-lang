@@ -124,8 +124,8 @@ class BBArray(BBType):
         elif isinstance(t, BBTuple):
             zs = []
             for i in range(t.tuple_len()):
-                z = self.element.z3coerce(t.members[i], t.z3member(i,z))
-                zs.append(z)
+                z0 = self.element.z3coerce(t.members[i], t.z3member(i,z))
+                zs.append(z0)
             return sequence_zs(self.z3sort(), zs)
         else:
             raise TypeException('Cannot coerce {t} to {self}')
