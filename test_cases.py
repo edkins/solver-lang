@@ -1,7 +1,62 @@
-from stages.main import run_script
-from stages.errors import *
+from instrs.session import run_script
+from instrs.errors import *
 import pytest
 
+def test_num_eq():
+    assert "True : bool\n" == run_script("42 == 42")
+
+def test_num_neq():
+    assert "False : bool\n" == run_script("32 == 42")
+
+def test_tuple_eq():
+    assert "True : bool\n" == run_script("[1,true] == [1,true]")
+
+def test_tuple_neq():
+    assert "False : bool\n" == run_script("[1,true] == [1,false]")
+
+def test_tuple_neq_len():
+    assert "False : bool\n" == run_script("[1,true] == [1]")
+
+def test_tuple_neq_empty():
+    assert "False : bool\n" == run_script("[] == [1]")
+
+def test_empty_tuple():
+    assert "() : tuple[]\n" == run_script("[]")
+
+def test_singleton_tuple():
+    assert "(1,) : tuple[int]\n" == run_script("[1]")
+
+def test_singleton_array():
+    assert "[1] : array[int]\n" == run_script("arr[1]")
+
+def test_pair_array():
+    assert "[1, 2] : array[int]\n" == run_script("arr[1,2]")
+
+def test_mismatched_pair_array():
+    assert "[1, False] : array[union[bool,int]]\n" == run_script("arr[1,false]")
+
+def test_mismatched_array_of_arrays():
+    assert "[[1], [False]] : array[array[union[bool,int]]]\n" == run_script("arr[arr[1],arr[false]]")
+
+def test_array_of_tuple_and_array():
+    assert "[[1], [2, 3]] : array[array[int]]\n" == run_script("arr[arr[1],[2,3]]")
+
+def test_array_of_tuple_and_longer_tuple():
+    assert "[(1,), (2, 3)] : array[union[tuple[int,int],tuple[int]]]\n" == run_script("arr[[1],[2,3]]")
+
+def test_not_actually_empty_array():
+    assert "() : tuple[]\n" == run_script("arr[]")
+
+def mismatched_eq():
+    assert "False : bool\n" == run_script("1 == true")
+
+def mismatched_tuple_eq():
+    assert "False : bool\n" == run_script("1 == [1]")
+
+def tuple_eq_array():
+    assert "True : bool\n" == run_script("[1] == arr[1]")
+
+'''
 def test_square():
     run_script("""
 fn square(x:int) -> int {
@@ -196,3 +251,4 @@ fn f() -> union[int,bool] {
 assert f() + 1 == 35
 """)
 
+'''

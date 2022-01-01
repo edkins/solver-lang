@@ -1,6 +1,7 @@
 import z3
 import lark
 import logging
+import io
 from typing import TextIO
 from instrs.instr import RegFile
 from instrs.grammar import grammar
@@ -36,4 +37,13 @@ class Session:
                 raise e
         self.pos = len(self.instr_builder.instrs)
         value, more, t = self.rf.get_reg_python_value(dest)
-        print(f'{value} {"..." if more else ""} : {t}')
+        self.out.write(f'{value}{"..." if more else ""} : {t}\n')
+
+def run_script(script:str) -> str:
+    with io.StringIO() as output:
+        session = Session(output, True)
+        for text in script.split('\n'):
+            stripped = text.strip()
+            if stripped != '':
+                session.parse_and_process(stripped)
+        return output.getvalue()

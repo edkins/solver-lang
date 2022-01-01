@@ -20,13 +20,6 @@ class RegFile:
         self.funcs:set[str] = set()
         self.solver = solver
 
-    def define_funcs(self, funcs: list[Z3FunctionRequirement]):
-        for func in funcs:
-            if func.f.name() not in self.funcs:
-                self.funcs.add(func.f.name())
-                logging.info('Defining fn {func.f.name()}')
-                z3.RecAddDefinition(func.f, [func.var], func.rule)
-
     def get(self, v:Val) -> tuple[z3.ExprRef, BBType]:
         if isinstance(v, bool):
             return z3.BoolVal(v), BBB
@@ -247,10 +240,8 @@ class Eq(Instr):
         z0,t0 = rf.get(self.r0)
         z1,t1 = rf.get(self.r1)
         t = flat_union([t0, t1])
-        z0c,fs = t.z3coerce(t0, z0)
-        rf.define_funcs(fs)
-        z1c,fs = t.z3coerce(t1, z1)
-        rf.define_funcs(fs)
+        z0c = t.z3coerce(t0, z0)
+        z1c = t.z3coerce(t1, z1)
         result = t.z3eq(z0c, z1c)
         if self.ne:
             rf.put(self.dest, BBB, z3.Not(result))
@@ -373,7 +364,10 @@ class Arr(Instr):
             else:
                 raise TypeException(f'Can only convert arrays and tuples to arr, not {t}')
         if len(element_types) == 0:
-            raise TypeException('Unknown array type (probably empty tuple)')
+            # No possibilities for contents - so must be empty tuple
+            rtype = BBTuple([])
+            rf.put(self.dest, rtype, rtype.z3tuple([]))
+            return
         element_type = flat_union(element_types)
         result_type = BBArray(element_type)
 
@@ -384,9 +378,8 @@ class Arr(Instr):
             if isinstance(t, BBTuple):
                 zs = []
                 for j in range(t.tuple_len()):
-                    zc, fs = element_type.z3coerce(t.members[j], t.z3member(j,z))
+                    zc = element_type.z3coerce(t.members[j], t.z3member(j,z))
                     zs.append(zc)
-                    rf.define_funcs(fs)
                 return sequence_zs(element_type.z3sort(), zs)
             elif isinstance(t, BBArray):
                 return z
