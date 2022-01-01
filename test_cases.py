@@ -84,6 +84,47 @@ def test_wrong_return_type():
     }
     """)
 
+def test_func_arg():
+    run_script("""
+fn myfunc(x:int) -> int {
+    return x
+}
+""")
+
+def test_func_conflicting_args():
+    with pytest.raises(RegAlreadySetException):
+        run_script("""
+fn myfunc(x:int, x:int) -> int {
+    return 0
+}
+""")
+
+def test_func_conflicting_arg_outer():
+    with pytest.raises(RegAlreadySetException):
+        run_script("""
+x = 0
+fn myfunc(x:int) -> int {
+    return 0
+}
+""")
+
+def test_func_arg_assert():
+    run_script("""
+fn myfunc(x:int) -> int {
+    assert x * x >= 0
+    return x
+}
+""")
+
+def test_func_arg_assert_fail():
+    with pytest.raises(AssertionException):
+        run_script("""
+fn myfunc(x:int) -> int {
+    assert x * x <= 0
+    return x
+}
+""")
+
 '''
 def test_square():
     run_script("""
