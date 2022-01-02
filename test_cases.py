@@ -151,13 +151,12 @@ fn f(x:int) -> int {
     return 2 * x
 }
 fn g(y:int) -> int {
-    return f(y) + 1
+    return f(y+1) + 1
 }
-assert g(2) == 5
+assert g(2) == 7
 """)
 
-def test_func_calls_func_same_vars(caplog):
-    caplog.set_level(logging.INFO)
+def test_func_calls_func_same_vars():
     run_script("""
 fn f(x:int) -> int {
     return 2 * x
@@ -168,7 +167,20 @@ fn g(x:int) -> int {
 assert g(2) == 5
 """)
 
-'''
+def test_func_calls_func_calls_func():
+    run_script("""
+fn f(x:int) -> int {
+    return 2 * x
+}
+fn g(x:int) -> int {
+    return f(x+1) + 1
+}
+fn h(x:int) -> int {
+    return -g(x*x)
+}
+assert h(2) == -11
+""")
+
 def test_square_nonneg():
     run_script("""
 fn square(x:int) -> int {
@@ -181,6 +193,14 @@ fn f(x:int) -> int {
 }
 """)
 
+def test_range_assert():
+    run_script("""
+fn f(x:range 5) -> int {
+    assert x >= 0
+    return x
+}
+""")
+
 def test_range_unreachable():
     run_script("""
 fn f(x:range 0) -> int {
@@ -189,7 +209,7 @@ fn f(x:range 0) -> int {
 """)
 
 def test_range_reachable():
-    with pytest.raises(ReachabilityException):
+    with pytest.raises(AssertionException):
         run_script("""
     fn f(x:range 5) -> int {
         unreachable
@@ -216,7 +236,7 @@ assert f(2) == 2
 """)
 
 def test_out_of_range_ret():
-    with pytest.raises(PostconditionException):
+    with pytest.raises(AssertionException):
         run_script("""
 fn f(x:range 3) -> range 2 {
     return x * x - x
@@ -224,7 +244,7 @@ fn f(x:range 3) -> range 2 {
 """)
 
 def test_range_precondition():
-    with pytest.raises(PreconditionException):
+    with pytest.raises(AssertionException):
         run_script("""
     fn f(x:range 3) -> range 3 {
         return x * x - x
@@ -344,4 +364,3 @@ fn f() -> union[int,bool] {
 assert f() + 1 == 35
 """)
 
-'''

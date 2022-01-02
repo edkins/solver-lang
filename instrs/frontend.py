@@ -47,10 +47,11 @@ def unary(name:str, dest:Reg, v:Val) -> Instr:
         raise Unimplemented(f'Unary {name}')
 
 class FuncInfo:
-    def __init__(self, entrypoint:int, argcount:int, ret:BBType, outers:set[str]):
+    def __init__(self, entrypoint:int, argcount:int, ret:BBType, ret_register:Reg, outers:set[str]):
         self.entrypoint = entrypoint
         self.argcount = argcount
         self.ret = ret
+        self.ret_register = ret_register
         self.outers = set(outers)
         self.finished = False
 
@@ -76,7 +77,7 @@ class InstrBuilder:
         self.tempnum += 1
         return result
 
-    def visit_type(self, ast: Ast) -> BBType:
+    def visit_type_bb(self, ast: Ast) -> BBType:
         if isinstance(ast, lark.Token):
             if ast.value == 'int':
                 return BBZ
@@ -88,14 +89,53 @@ class InstrBuilder:
             if ast.data == 'range':
                 return BBZ
             elif ast.data == 'tuple':
-                ts = [self.visit_type(e) for e in ast.children]
+                ts = [self.visit_type_bb(e) for e in ast.children]
                 return BBTuple(ts)
             elif ast.data == 'array':
-                t = self.visit_type(ast.children[0])
+                t = self.visit_type_bb(ast.children[0])
                 return BBArray(t)
             elif ast.data == 'union':
-                ts = [self.visit_type(e) for e in ast.children]
+                ts = [self.visit_type_bb(e) for e in ast.children]
                 return flat_union(ts)
+            else:
+                raise Unimplemented(f'Unimplemented type tree {ast.data}')
+        else:
+            raise Unimplemented('Unimplemented type non-tree non-token')
+
+    def emit_condition(self, r:Val, post:bool):
+        if post:
+            self.emit(Postcondition(r))
+        else:
+            self.emit(Precondition(r))
+
+    def visit_type_cond(self, ast: Ast, val:Optional[Val], post:bool):
+        if isinstance(ast, lark.Token):
+            if ast.value == 'int':
+                pass
+            elif ast.value == 'bool':
+                pass
+            else:
+                raise Unimplemented(f'Unimplemented type token {ast.value}')
+        elif isinstance(ast, lark.Tree):
+            if ast.data == 'range':
+                upper = self.visit_expr(ast.children[0],None)
+                if isinstance(val, int) or isinstance(val, Reg):
+                    t0 = self.target_or_next_temporary(None)
+                    t1 = self.target_or_next_temporary(None)
+                    self.emit(Le(t0, 0, val))
+                    self.emit_condition(t0, post)
+                    self.emit(Lt(t1, val, upper))
+                    self.emit_condition(t1, post)
+                else:
+                    raise Unimplemented('Cannot currently put range inside other thing')
+            elif ast.data == 'tuple':
+                for e in ast.children:
+                    self.visit_type_cond(e,None,post)
+            elif ast.data == 'array':
+                self.visit_type_cond(ast.children[0],None,post)
+            elif ast.data == 'union':
+                for e in ast.children:
+                    self.visit_type_cond(e,None,post)
             else:
                 raise Unimplemented(f'Unimplemented type tree {ast.data}')
         else:
@@ -107,8 +147,9 @@ class InstrBuilder:
             if isinstance(arg, lark.Tree):
                 x, t = arg.children
                 name = token_value(x)
-                typ = self.visit_type(t)
+                typ = self.visit_type_bb(t)
                 self.emit(Arg(Reg(name), typ))
+                self.visit_type_cond(t, Reg(name), False)
             else:
                 raise Unimplemented('Unimplemented arg non-tree')
 
@@ -124,7 +165,7 @@ class InstrBuilder:
             elif ast.data == 'assert':
                 e, = ast.children
                 val = self.visit_expr(e, None)
-                self.emit(Assert(val))
+                self.emit(Assert(val,'assert'))
                 return None
             elif ast.data == 'pushfn':
                 f = token_value(ast.children[0])
@@ -133,16 +174,17 @@ class InstrBuilder:
                 if f in self.func_infos:
                     raise FuncAlreadyDefinedException(f)
                 self.current_func = f
-                func_info = FuncInfo(len(self.instrs), len(args), self.visit_type(ret), self.outers)
+                ret_register = self.target_or_next_temporary(None)
+                func_info = FuncInfo(len(self.instrs), len(args), self.visit_type_bb(ret), ret_register, self.outers)
                 self.func_infos[f] = func_info
-                self.emit(Push())
+                self.emit(Fn())
                 self.visit_args(args)
                 return None
             elif ast.data == 'pop':
                 if not isinstance(self.current_func, str):
                     raise StackEmptyException()
                 if not self.func_infos[self.current_func].finished:
-                    raise ReachabilityException('Missing return statement in function')
+                    raise IncompleteFunctionException('Missing return statement in function')
                 self.current_func = None
                 return None
             elif ast.data == 'return':
@@ -152,9 +194,15 @@ class InstrBuilder:
                     raise DuplicateReturnStatementException()
                 e, = ast.children
                 val = self.visit_expr(e, None)
-                val2 = self.target_or_next_temporary(None)
+                val2 = self.func_infos[self.current_func].ret_register
                 self.emit(Coerce(val2, val, self.func_infos[self.current_func].ret))
                 self.emit(Ret(val2))
+                self.func_infos[self.current_func].finished = True
+                return None
+            elif ast.data == 'unreachable':
+                if not isinstance(self.current_func, str):
+                    raise NotInFunctionException('Top level cannot be unreachable')
+                self.emit(Unreachable())
                 self.func_infos[self.current_func].finished = True
                 return None
             elif ast.data == 'sample':
@@ -200,8 +248,14 @@ class InstrBuilder:
                 dest = self.target_or_next_temporary(target)
                 self.emit(binop(ast.data, dest, v0, v1))
                 return dest
-            elif ast.data in ['neg','len','arr']:
+            elif ast.data in ['neg']:
                 e0, = ast.children
+                v0 = self.visit_expr(e0,None)
+                dest = self.target_or_next_temporary(target)
+                self.emit(unary(ast.data, dest, v0))
+                return dest
+            elif ast.data in ['len','arr']:
+                zzz,e0 = ast.children
                 v0 = self.visit_expr(e0,None)
                 dest = self.target_or_next_temporary(target)
                 self.emit(unary(ast.data, dest, v0))
@@ -221,16 +275,20 @@ class InstrBuilder:
                 remapping = RegRemapping(self.func_infos[f].outers, prefix)
                 while True:
                     instr = self.instrs[i].remap(remapping)
-                    if isinstance(instr, Push):
+                    if isinstance(instr, Fn):
                         pass
                     elif isinstance(instr, Arg):
                         if len(vs) == 0:
                             raise UnexpectedException('too few args')
                         self.emit(Mov(instr.dest, vs.pop(0)))
+                    elif isinstance(instr, Precondition):
+                        self.emit(Assert(instr.r, 'precondition'))
                     elif isinstance(instr, Ret):
                         if len(vs) != 0:
                             raise UnexpectedException('too many args')
                         return instr.r
+                    elif isinstance(instr, Unreachable):
+                        raise UnexpectedException("Shouldn't be inside call to unreachable function")
                     else:
                         self.emit(instr)
                     i += 1

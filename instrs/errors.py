@@ -52,5 +52,5 @@ class ArgCountMismatchException(Mistake):
 class DuplicateReturnStatementException(Mistake):
     pass
 
-class ReachabilityException(Mistake):
+class IncompleteFunctionException(Mistake):
     pass

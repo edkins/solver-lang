@@ -168,16 +168,16 @@ class BBTuple(BBType):
     def z3coerce_actual(self, t:BBType, z:z3.ExprRef) -> z3.ExprRef:
         if isinstance(t, BBTuple):
             if t.tuple_len() != self.tuple_len():
-                raise TypeException('Cannot coerce {t} to {self} (tuples are different lengths)')
+                raise TypeException(f'Cannot coerce {t} to {self} (tuples are different lengths)')
             zs = []
             for i in range(t.tuple_len()):
                 z = self.members[i].z3coerce(t.members[i], t.z3member(i,z))
                 zs.append(z)
             return self.z3tuple(zs)
         elif isinstance(t, BBArray):
-            raise UnexpectedException('Cannot currently coerce {t} to {self} (unknown array length)')
+            raise Unimplemented(f'Cannot currently coerce {t} to {self} (unknown array length)')
         else:
-            raise TypeException('Cannot coerce {t} to {self}')
+            raise TypeException(f'Cannot coerce {t} to {self}')
 
     def z3_to_python(self, z:z3.ExprRef) -> tuple:
         if z.sort() != self.z3sort():

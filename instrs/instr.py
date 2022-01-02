@@ -102,6 +102,9 @@ class RegFile:
         if self.satisfiable(z3.Not(z)):
             raise AssertionException(msg)
 
+    def assume(self, z:z3.ExprRef):
+        self.solver.add(z)
+
     def satisfiable(self, z:z3.ExprRef):
         if z.sort() != z3.BoolSort():
             raise UnexpectedException(f'Assertion sort must be boolean, got {z.sort()}')
@@ -483,8 +486,9 @@ class Arr(Instr):
         return Arr(m.reg(self.dest), m.val(self.r))
 
 class Assert(Instr):
-    def __init__(self, r:Val):
+    def __init__(self, r:Val, msg:str):
         self.r = r
+        self.msg = msg
 
     def __repr__(self):
         return f'assert {self.r}'
@@ -493,20 +497,47 @@ class Assert(Instr):
         z,t = rf.get(self.r)
         if t != BBB:
             raise TypeException('Can only assert boolean values')
-        rf.check(z, 'assert')
+        rf.check(z, self.msg)
 
     def remap(self, m:RegRemapping) -> Instr:
-        return Assert(m.val(self.r))
+        return Assert(m.val(self.r), self.msg)
 
-class Push(Instr):
+class Precondition(Instr):
+    def __init__(self, r:Val):
+        self.r = r
+
     def __repr__(self):
-        return 'push'
+        return f'precondition {self.r}'
+
+    def exec(self, rf:RegFile):
+        z,t = rf.get(self.r)
+        if t != BBB:
+            raise TypeException('Precondition must be boolean value')
+        rf.assume(z)
+
+    def remap(self, m:RegRemapping) -> Instr:
+        return Precondition(m.val(self.r))
+
+
+class Unreachable(Instr):
+    def __repr__(self):
+        return 'unreachable'
+
+    def exec(self, rf:RegFile):
+        rf.check(z3.BoolVal(False), 'unreachable')
+
+    def remap(self, m:RegRemapping) -> Instr:
+        return Unreachable()
+
+class Fn(Instr):
+    def __repr__(self):
+        return 'fn'
 
     def exec(self, rf:RegFile):
         rf.push()
 
     def remap(self, m:RegRemapping) -> Instr:
-        return Push()
+        return Fn()
 
 class Arg(Instr):
     def __init__(self, dest:Reg, typ:BBType):

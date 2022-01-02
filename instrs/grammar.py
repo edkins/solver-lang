@@ -1,8 +1,9 @@
 import lark
 
-grammar = lark.Lark('''
+grammar = lark.Lark(r'''
 ?start: assign
         | assert
+        | unreachable
         | pushfn
         | pop
         | return
@@ -10,6 +11,7 @@ grammar = lark.Lark('''
 
 assign: CNAME "=" expr
 assert: "assert" expr
+unreachable: "unreachable"
 pushfn: "fn" CNAME "(" argcomma* arg? ")" "->" type "{"
 pop: "}"
 return: "return" expr
@@ -80,8 +82,8 @@ lookup: term "[" expr "]"
      | listing
      | neg
 
-len: "len" lexpr
-arr: "arr" lexpr
+len: /len\b/ lexpr
+arr: /arr\b/ lexpr
 call: CNAME "(" exprcomma* expr? ")"
 ?exprcomma: expr ","
 
