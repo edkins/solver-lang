@@ -1,3 +1,4 @@
+from __future__ import annotations
 from typing import Union, Callable, Any, Optional
 import logging
 import z3
@@ -17,7 +18,23 @@ Val = Union[Reg, int, bool]
 class StackFrame:
     def __init__(self):
         self.vars:set[str] = set()
-        self.ret:Optional[BBType] = None
+
+class RegRemapping:
+    def __init__(self, outer:set[str], prefix:str):
+        self.outer = set(outer)
+        self.prefix = prefix
+
+    def reg(self, r:Reg) -> Reg:
+        if r.name in self.outer:
+            return r
+        else:
+            return Reg(self.prefix + r.name)
+
+    def val(self, v:Val) -> Val:
+        if isinstance(v, Reg):
+            return self.reg(v)
+        else:
+            return v
 
 class RegFile:
     def __init__(self, solver:z3.Solver):
@@ -139,17 +156,13 @@ class RegFile:
         else:
             raise Unimplemented("Don't know what this is")
 
-    def set_return_type(self, bb:BBType):
-        if self.stack[-1].ret != None:
-            raise UnexpectedException('Already have a return type')
-        self.stack[-1].ret = bb
-
-    def get_return_type(self) -> Optional[BBType]:
-        return self.stack[-1].ret
-
 class Instr:
     # Overridden
     def exec(self, rf:RegFile):
+        raise UnexpectedException()
+
+    # Overridden
+    def remap(self, m:RegRemapping) -> Instr:
         raise UnexpectedException()
 
 class Mov(Instr):
@@ -163,6 +176,9 @@ class Mov(Instr):
     def exec(self, rf:RegFile):
         z,t = rf.get(self.r)
         rf.put(self.dest, t, z)
+
+    def remap(self, m:RegRemapping) -> Instr:
+        return Mov(m.reg(self.dest), m.val(self.r))
 
 class Add(Instr):
     def __init__(self, dest:Reg, r0:Val, r1:Val):
@@ -182,6 +198,9 @@ class Add(Instr):
             raise UnexpectedException(f'Expected ArithRef, got {type(z0)} and {type(z1)}')
         rf.put(self.dest, BBZ, z0 + z1)
 
+    def remap(self, m:RegRemapping) -> Instr:
+        return Add(m.reg(self.dest), m.val(self.r0), m.val(self.r1))
+
 class Sub(Instr):
     def __init__(self, dest:Reg, r0:Val, r1:Val):
         self.dest = dest
@@ -199,6 +218,9 @@ class Sub(Instr):
         if not isinstance(z0, z3.ArithRef) or not isinstance(z1, z3.ArithRef):
             raise UnexpectedException(f'Expected ArithRef, got {type(z0)} and {type(z1)}')
         rf.put(self.dest, BBZ, z0 - z1)
+
+    def remap(self, m:RegRemapping) -> Instr:
+        return Sub(m.reg(self.dest), m.val(self.r0), m.val(self.r1))
 
 class Mul(Instr):
     def __init__(self, dest:Reg, r0:Val, r1:Val):
@@ -218,6 +240,9 @@ class Mul(Instr):
             raise UnexpectedException(f'Expected ArithRef, got {type(z0)} and {type(z1)}')
         rf.put(self.dest, BBZ, z0 * z1)
 
+    def remap(self, m:RegRemapping) -> Instr:
+        return Mul(m.reg(self.dest), m.val(self.r0), m.val(self.r1))
+
 class Neg(Instr):
     def __init__(self, dest:Reg, r:Val):
         self.dest = dest
@@ -233,6 +258,9 @@ class Neg(Instr):
         if not isinstance(z, z3.ArithRef):
             raise UnexpectedException(f'Expected ArithRef, got {type(z)}')
         rf.put(self.dest, BBZ, -z)
+
+    def remap(self, m:RegRemapping) -> Instr:
+        return Neg(m.reg(self.dest), m.val(self.r))
 
 class Lt(Instr):
     def __init__(self, dest:Reg, r0:Val, r1:Val):
@@ -252,6 +280,9 @@ class Lt(Instr):
             raise UnexpectedException(f'Expected ArithRef, got {type(z0)} and {type(z1)}')
         rf.put(self.dest, BBB, z0 < z1)
 
+    def remap(self, m:RegRemapping) -> Instr:
+        return Lt(m.reg(self.dest), m.val(self.r0), m.val(self.r1))
+
 class Le(Instr):
     def __init__(self, dest:Reg, r0:Val, r1:Val):
         self.dest = dest
@@ -269,6 +300,9 @@ class Le(Instr):
         if not isinstance(z0, z3.ArithRef) or not isinstance(z1, z3.ArithRef):
             raise UnexpectedException(f'Expected ArithRef, got {type(z0)} and {type(z1)}')
         rf.put(self.dest, BBB, z0 <= z1)
+
+    def remap(self, m:RegRemapping) -> Instr:
+        return Le(m.reg(self.dest), m.val(self.r0), m.val(self.r1))
 
 class Eq(Instr):
     def __init__(self, dest:Reg, r0:Val, r1:Val, ne:bool):
@@ -292,6 +326,8 @@ class Eq(Instr):
         else:
             rf.put(self.dest, BBB, result)
 
+    def remap(self, m:RegRemapping) -> Instr:
+        return Eq(m.reg(self.dest), m.val(self.r0), m.val(self.r1), self.ne)
 
 class Listing(Instr):
     def __init__(self, dest:Reg, rs:list[Val]):
@@ -310,6 +346,9 @@ class Listing(Instr):
             ts.append(t)
         bb = BBTuple(ts)
         rf.put(self.dest, bb, bb.z3tuple(zs))
+
+    def remap(self, m:RegRemapping) -> Instr:
+        return Listing(m.reg(self.dest), [m.val(r) for r in self.rs])
 
 class Len(Instr):
     def __init__(self, dest:Reg, r:Val):
@@ -335,6 +374,9 @@ class Len(Instr):
                 raise TypeException(f'Cannot take length of {t}')
 
         rf.put_union(self.dest, BBZ, zu, tu, munge)
+
+    def remap(self, m:RegRemapping) -> Instr:
+        return Len(m.reg(self.dest), m.val(self.r))
 
 class Lookup(Instr):
     def __init__(self, dest:Reg, r0:Val, r1:Val):
@@ -389,6 +431,9 @@ class Lookup(Instr):
 
         rf.put_union(self.dest, result_type, zu, tu, munge)
 
+    def remap(self, m:RegRemapping) -> Instr:
+        return Lookup(m.reg(self.dest), m.val(self.r0), m.val(self.r1))
+
 class Arr(Instr):
     def __init__(self, dest:Reg, r:Val):
         self.dest = dest
@@ -434,6 +479,9 @@ class Arr(Instr):
 
         rf.put_union(self.dest, result_type, zu, tu, munge)
 
+    def remap(self, m:RegRemapping) -> Instr:
+        return Arr(m.reg(self.dest), m.val(self.r))
+
 class Assert(Instr):
     def __init__(self, r:Val):
         self.r = r
@@ -447,6 +495,9 @@ class Assert(Instr):
             raise TypeException('Can only assert boolean values')
         rf.check(z, 'assert')
 
+    def remap(self, m:RegRemapping) -> Instr:
+        return Assert(m.val(self.r))
+
 class Push(Instr):
     def __repr__(self):
         return 'push'
@@ -454,12 +505,8 @@ class Push(Instr):
     def exec(self, rf:RegFile):
         rf.push()
 
-class Pop(Instr):
-    def __repr__(self):
-        return 'pop'
-
-    def exec(self, rf:RegFile):
-        rf.pop()
+    def remap(self, m:RegRemapping) -> Instr:
+        return Push()
 
 class Arg(Instr):
     def __init__(self, dest:Reg, typ:BBType):
@@ -472,15 +519,25 @@ class Arg(Instr):
     def exec(self, rf:RegFile):
         rf.put_arg(self.dest, self.typ)
 
-class RetType(Instr):
-    def __init__(self, typ:BBType):
+    def remap(self, m:RegRemapping) -> Instr:
+        return Arg(m.reg(self.dest), self.typ)
+
+class Coerce(Instr):
+    def __init__(self, dest:Reg, r:Val, typ:BBType):
+        self.dest = dest
+        self.r = r
         self.typ = typ
 
     def __repr__(self):
-        return f'rettype {self.typ}'
+        return f'{self.dest} <- coerce[{self.typ}] {self.r}'
 
     def exec(self, rf:RegFile):
-        rf.set_return_type(self.typ)
+        z,t = rf.get(self.r)
+        zc = self.typ.z3coerce(t, z)
+        rf.put(self.dest, self.typ, zc)
+
+    def remap(self, m:RegRemapping) -> Instr:
+        return Coerce(m.reg(self.dest), m.val(self.r), self.typ)
 
 class Ret(Instr):
     def __init__(self, r:Val):
@@ -490,9 +547,8 @@ class Ret(Instr):
         return f'ret {self.r}'
 
     def exec(self, rf:RegFile):
-        typ = rf.get_return_type()
-        if not isinstance(typ, BBType):
-            raise NotInFunctionException()
         z,t = rf.get(self.r)
-        zc = typ.z3coerce(t, z)
-        # TODO: do something with zc
+        rf.pop()
+
+    def remap(self, m:RegRemapping) -> Instr:
+        return Ret(m.val(self.r))

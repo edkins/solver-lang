@@ -46,11 +46,22 @@ def unary(name:str, dest:Reg, v:Val) -> Instr:
     else:
         raise Unimplemented(f'Unary {name}')
 
+class FuncInfo:
+    def __init__(self, entrypoint:int, argcount:int, ret:BBType, outers:set[str]):
+        self.entrypoint = entrypoint
+        self.argcount = argcount
+        self.ret = ret
+        self.outers = set(outers)
+        self.finished = False
+
 class InstrBuilder:
     def __init__(self, is_repl:bool):
         self.tempnum = 0
         self.instrs:list[Instr] = []
         self.is_repl = is_repl
+        self.func_infos:dict[str,FuncInfo] = {}
+        self.current_func:Optional[str] = None
+        self.outers:set[str] = set()
 
     def rollback(self, pos:int):
         if pos >= 0 and pos <= len(self.instrs):
@@ -106,6 +117,8 @@ class InstrBuilder:
             if ast.data == 'assign':
                 x, e = ast.children
                 name = token_value(x)
+                if self.current_func == None:
+                    self.outers.add(name)
                 self.visit_expr(e, Reg(name))
                 return Reg(name)
             elif ast.data == 'assert':
@@ -117,17 +130,32 @@ class InstrBuilder:
                 f = token_value(ast.children[0])
                 args = ast.children[1:-1]
                 ret = ast.children[-1]
+                if f in self.func_infos:
+                    raise FuncAlreadyDefinedException(f)
+                self.current_func = f
+                func_info = FuncInfo(len(self.instrs), len(args), self.visit_type(ret), self.outers)
+                self.func_infos[f] = func_info
                 self.emit(Push())
                 self.visit_args(args)
-                self.emit(RetType(self.visit_type(ret)))
                 return None
             elif ast.data == 'pop':
-                self.emit(Pop())
+                if not isinstance(self.current_func, str):
+                    raise StackEmptyException()
+                if not self.func_infos[self.current_func].finished:
+                    raise ReachabilityException('Missing return statement in function')
+                self.current_func = None
                 return None
             elif ast.data == 'return':
+                if not isinstance(self.current_func, str):
+                    raise NotInFunctionException('Cannot return at top level')
+                if self.func_infos[self.current_func].finished:
+                    raise DuplicateReturnStatementException()
                 e, = ast.children
                 val = self.visit_expr(e, None)
-                self.emit(Ret(val))
+                val2 = self.target_or_next_temporary(None)
+                self.emit(Coerce(val2, val, self.func_infos[self.current_func].ret))
+                self.emit(Ret(val2))
+                self.func_infos[self.current_func].finished = True
                 return None
             elif ast.data == 'sample':
                 if not self.is_repl:
@@ -180,10 +208,32 @@ class InstrBuilder:
                 return dest
             elif ast.data == 'call':
                 f = token_value(ast.children[0])
+                if f not in self.func_infos:
+                    raise FuncNotDefinedException(f)
                 vs = []
                 for e in ast.children[1:]:
                     vs.append(self.visit_expr(e,None))
-                raise Unimplemented()
+                if self.func_infos[f].argcount != len(vs):
+                    raise ArgCountMismatchException(f'Expected {self.func_infos[f].argcount} arguments, got {len(vs)}')
+                i = self.func_infos[f].entrypoint
+                prefix = f'c{self.tempnum}$'
+                self.tempnum += 1
+                remapping = RegRemapping(self.func_infos[f].outers, prefix)
+                while True:
+                    instr = self.instrs[i].remap(remapping)
+                    if isinstance(instr, Push):
+                        pass
+                    elif isinstance(instr, Arg):
+                        if len(vs) == 0:
+                            raise UnexpectedException('too few args')
+                        self.emit(Mov(instr.dest, vs.pop(0)))
+                    elif isinstance(instr, Ret):
+                        if len(vs) != 0:
+                            raise UnexpectedException('too many args')
+                        return instr.r
+                    else:
+                        self.emit(instr)
+                    i += 1
             elif ast.data == 'listing':
                 vs = []
                 for e in ast.children:

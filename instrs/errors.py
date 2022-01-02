@@ -39,3 +39,18 @@ class StackEmptyException(Mistake):
 
 class NotInFunctionException(Mistake):
     pass
+
+class FuncAlreadyDefinedException(Mistake):
+    pass
+
+class FuncNotDefinedException(Mistake):
+    pass
+
+class ArgCountMismatchException(Mistake):
+    pass
+
+class DuplicateReturnStatementException(Mistake):
+    pass
+
+class ReachabilityException(Mistake):
+    pass

@@ -1,6 +1,7 @@
 from instrs.session import run_script
 from instrs.errors import *
 import pytest
+import logging
 
 def test_num_eq():
     assert "True : bool\n" == run_script("42 == 42")
@@ -125,7 +126,6 @@ fn myfunc(x:int) -> int {
 }
 """)
 
-'''
 def test_square():
     run_script("""
 fn square(x:int) -> int {
@@ -145,6 +145,30 @@ def test_square_assertion_failure():
     assert square(-2) == 5
     """)
 
+def test_func_calls_func_different_vars():
+    run_script("""
+fn f(x:int) -> int {
+    return 2 * x
+}
+fn g(y:int) -> int {
+    return f(y) + 1
+}
+assert g(2) == 5
+""")
+
+def test_func_calls_func_same_vars(caplog):
+    caplog.set_level(logging.INFO)
+    run_script("""
+fn f(x:int) -> int {
+    return 2 * x
+}
+fn g(x:int) -> int {
+    return f(x) + 1
+}
+assert g(2) == 5
+""")
+
+'''
 def test_square_nonneg():
     run_script("""
 fn square(x:int) -> int {
