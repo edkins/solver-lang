@@ -67,6 +67,96 @@ class RegFile:
         else:
             raise UnexpectedException('Unrecognized value class')
 
+    def get_coerce(self, v:Val, bb:BBType) -> z3.ExprRef:
+        z,t = self.get(v)
+        return self.coerce(bb, t, z)
+
+    def coerce(self, dt:BBType, t:BBType, z:z3.ExprRef) -> z3.ExprRef:
+        if t == dt:
+            return z
+        else:
+            t_opts = t.get_options()
+            result = None
+            for i in range(len(t_opts)):
+                try:
+                    t_opt = t_opts[i]
+                    z_opt = t.z3accessor(i,z)
+                    if t_opt == dt:
+                        result_opt = z_opt
+                    elif isinstance(dt, BBArray):
+                        result_opt = self.coerce_array(dt, t_opt, z_opt)
+                    elif isinstance(dt, BBTuple):
+                        result_opt = self.coerce_tuple(dt, t_opt, z_opt)
+                    elif isinstance(dt, BBUnion):
+                        result_opt = self.coerce_union(dt, t_opt, z_opt)
+                    else:
+                        raise TypeException(f'Cannot coerce {t_opt} to {dt}')
+
+                    if result == None:
+                        result = result_opt
+                    else:
+                        result = z3.If(t.z3recognizer(i,z), result_opt, result)
+                except TypeException as e:
+                    try:
+                        self.check(z3.Not(t.z3recognizer(i,z)), f'union type check')
+                    except AssertionException as e1:
+                        raise e
+            if isinstance(result, z3.ExprRef):
+                return result
+            else:
+                raise UnexpectedException('No result')
+
+    def coerce_array(self, dt:BBArray, t:BBType, z:z3.ExprRef) -> z3.ExprRef:
+        if isinstance(t, BBArray):
+            if not isinstance(z, z3.SeqRef):
+                raise UnexpectedException(f'Expected SeqRef at this point, got {type(z)}')
+            x = t.z3var('.x')
+            name = 'coerce[{dt},{t}]'
+            f = z3.RecFunction(name, t.z3sort(), dt.z3sort())
+            zc = self.coerce(dt.element, t.element, z[0])
+            z3.RecAddDefinition(f, [x], z3.If(
+                x == z3.Empty(t.z3sort()),
+                z3.Empty(dt.z3sort()),
+                z3.Concat(z3.Unit(zc), f(z3.SubSeq(x, 1, z3.Length(x)-1)))))
+            return f(z)
+        elif isinstance(t, BBTuple):
+            zs = []
+            for i in range(t.tuple_len()):
+                z0 = self.coerce(dt.element, t.members[i], t.z3member(i,z))
+                zs.append(z0)
+            return sequence_zs(dt.z3sort(), zs)
+        else:
+            raise TypeException('Cannot coerce {t} to {dt}')
+
+    def coerce_tuple(self, dt:BBTuple, t:BBType, z:z3.ExprRef) -> z3.ExprRef:
+        if isinstance(t, BBTuple):
+            if t.tuple_len() != dt.tuple_len():
+                raise TypeException(f'Cannot coerce {t} to {dt} (tuples are different lengths)')
+            zs = []
+            for i in range(t.tuple_len()):
+                zs.append(self.coerce(dt.members[i], t.members[i], t.z3member(i,z)))
+            return dt.z3tuple(zs)
+        elif isinstance(t, BBArray):
+            if not isinstance(z, z3.SeqRef):
+                raise UnexpectedException(f'Expecting SeqRef, got {type(z)}')
+            self.check(z3.Length(z) == z3.IntVal(dt.tuple_len()), 'Array length')
+            zs = []
+            for i in range(dt.tuple_len()):
+                zs.append(self.coerce(dt.members[i], t.element, z[i]))
+            return dt.z3tuple(zs)
+        else:
+            raise TypeException(f'Cannot coerce {t} to {self}')
+
+    def coerce_union(self, dt:BBUnion, t:BBType, z:z3.ExprRef) -> z3.ExprRef:
+        opts = dt.get_options()
+        for i in range(len(opts)):
+            try:
+                zc = self.coerce(opts[i], t, z)
+                return dt.z3constructor(i, zc)
+            except TypeException:
+                pass
+        raise TypeException('Cannot coerce {t} to {dt} (no options match)')
+
     def put(self, r:Reg, bb:BBType, z:z3.ExprRef):
         if r.name in self.regs:
             raise RegAlreadySetException(r.name)
@@ -193,10 +283,8 @@ class Add(Instr):
         return f'{self.dest} <- {self.r0} + {self.r1}'
 
     def exec(self, rf:RegFile):
-        z0,t0 = rf.get(self.r0)
-        z1,t1 = rf.get(self.r1)
-        if t0 != BBZ or t1 != BBZ:
-            raise TypeException('Can only add ints')
+        z0 = rf.get_coerce(self.r0, BBZ)
+        z1 = rf.get_coerce(self.r1, BBZ)
         if not isinstance(z0, z3.ArithRef) or not isinstance(z1, z3.ArithRef):
             raise UnexpectedException(f'Expected ArithRef, got {type(z0)} and {type(z1)}')
         rf.put(self.dest, BBZ, z0 + z1)
@@ -214,10 +302,8 @@ class Sub(Instr):
         return f'{self.dest} <- {self.r0} - {self.r1}'
 
     def exec(self, rf:RegFile):
-        z0,t0 = rf.get(self.r0)
-        z1,t1 = rf.get(self.r1)
-        if t0 != BBZ or t1 != BBZ:
-            raise TypeException('Can only subtract ints')
+        z0 = rf.get_coerce(self.r0, BBZ)
+        z1 = rf.get_coerce(self.r1, BBZ)
         if not isinstance(z0, z3.ArithRef) or not isinstance(z1, z3.ArithRef):
             raise UnexpectedException(f'Expected ArithRef, got {type(z0)} and {type(z1)}')
         rf.put(self.dest, BBZ, z0 - z1)
@@ -235,10 +321,8 @@ class Mul(Instr):
         return f'{self.dest} <- {self.r0} * {self.r1}'
 
     def exec(self, rf:RegFile):
-        z0,t0 = rf.get(self.r0)
-        z1,t1 = rf.get(self.r1)
-        if t0 != BBZ or t1 != BBZ:
-            raise TypeException('Can only multiply ints')
+        z0 = rf.get_coerce(self.r0, BBZ)
+        z1 = rf.get_coerce(self.r1, BBZ)
         if not isinstance(z0, z3.ArithRef) or not isinstance(z1, z3.ArithRef):
             raise UnexpectedException(f'Expected ArithRef, got {type(z0)} and {type(z1)}')
         rf.put(self.dest, BBZ, z0 * z1)
@@ -255,9 +339,7 @@ class Neg(Instr):
         return f'{self.dest} <- -{self.r}'
 
     def exec(self, rf:RegFile):
-        z,t = rf.get(self.r)
-        if t != BBZ:
-            raise TypeException('Can only negate integers')
+        z = rf.get_coerce(self.r, BBZ)
         if not isinstance(z, z3.ArithRef):
             raise UnexpectedException(f'Expected ArithRef, got {type(z)}')
         rf.put(self.dest, BBZ, -z)
@@ -275,10 +357,8 @@ class Lt(Instr):
         return f'{self.dest} <- {self.r0} < {self.r1}'
 
     def exec(self, rf:RegFile):
-        z0,t0 = rf.get(self.r0)
-        z1,t1 = rf.get(self.r1)
-        if t0 != BBZ or t1 != BBZ:
-            raise TypeException('Can only compare ints')
+        z0 = rf.get_coerce(self.r0, BBZ)
+        z1 = rf.get_coerce(self.r1, BBZ)
         if not isinstance(z0, z3.ArithRef) or not isinstance(z1, z3.ArithRef):
             raise UnexpectedException(f'Expected ArithRef, got {type(z0)} and {type(z1)}')
         rf.put(self.dest, BBB, z0 < z1)
@@ -296,10 +376,8 @@ class Le(Instr):
         return f'{self.dest} <- {self.r0} <= {self.r1}'
 
     def exec(self, rf:RegFile):
-        z0,t0 = rf.get(self.r0)
-        z1,t1 = rf.get(self.r1)
-        if t0 != BBZ or t1 != BBZ:
-            raise TypeException('Can only compare ints')
+        z0 = rf.get_coerce(self.r0, BBZ)
+        z1 = rf.get_coerce(self.r1, BBZ)
         if not isinstance(z0, z3.ArithRef) or not isinstance(z1, z3.ArithRef):
             raise UnexpectedException(f'Expected ArithRef, got {type(z0)} and {type(z1)}')
         rf.put(self.dest, BBB, z0 <= z1)
@@ -321,8 +399,8 @@ class Eq(Instr):
         z0,t0 = rf.get(self.r0)
         z1,t1 = rf.get(self.r1)
         t = flat_union([t0, t1])
-        z0c = t.z3coerce(t0, z0)
-        z1c = t.z3coerce(t1, z1)
+        z0c = rf.coerce(t, t0, z0)
+        z1c = rf.coerce(t, t1, z1)
         result = t.z3eq(z0c, z1c)
         if self.ne:
             rf.put(self.dest, BBB, z3.Not(result))
@@ -392,9 +470,7 @@ class Lookup(Instr):
 
     def exec(self, rf:RegFile):
         zu,tu = rf.get(self.r0)
-        zi,ti = rf.get(self.r1)
-        if ti != BBZ:
-            raise TypeException('Index must be an integer')
+        zi = rf.get_coerce(self.r1, BBZ)
 
         ts = tu.get_options()
         result_type_options = []
@@ -472,7 +548,7 @@ class Arr(Instr):
             if isinstance(t, BBTuple):
                 zs = []
                 for j in range(t.tuple_len()):
-                    zc = element_type.z3coerce(t.members[j], t.z3member(j,z))
+                    zc = rf.coerce(element_type, t.members[j], t.z3member(j,z))
                     zs.append(zc)
                 return sequence_zs(element_type.z3sort(), zs)
             elif isinstance(t, BBArray):
@@ -494,9 +570,7 @@ class Assert(Instr):
         return f'assert {self.r}'
 
     def exec(self, rf:RegFile):
-        z,t = rf.get(self.r)
-        if t != BBB:
-            raise TypeException('Can only assert boolean values')
+        z = rf.get_coerce(self.r, BBB)
         rf.check(z, self.msg)
 
     def remap(self, m:RegRemapping) -> Instr:
@@ -510,9 +584,7 @@ class Precondition(Instr):
         return f'precondition {self.r}'
 
     def exec(self, rf:RegFile):
-        z,t = rf.get(self.r)
-        if t != BBB:
-            raise TypeException('Precondition must be boolean value')
+        z = rf.get_coerce(self.r, BBB)
         rf.assume(z)
 
     def remap(self, m:RegRemapping) -> Instr:
@@ -563,9 +635,8 @@ class Coerce(Instr):
         return f'{self.dest} <- coerce[{self.typ}] {self.r}'
 
     def exec(self, rf:RegFile):
-        z,t = rf.get(self.r)
-        zc = self.typ.z3coerce(t, z)
-        rf.put(self.dest, self.typ, zc)
+        z = rf.get_coerce(self.r, self.typ)
+        rf.put(self.dest, self.typ, z)
 
     def remap(self, m:RegRemapping) -> Instr:
         return Coerce(m.reg(self.dest), m.val(self.r), self.typ)
