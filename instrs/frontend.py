@@ -1,3 +1,4 @@
+from __future__ import annotations
 import lark
 from typing import Union, Optional
 from instrs.backbone import *
@@ -5,6 +6,70 @@ from instrs.instr import *
 from instrs.errors import *
 
 Ast = Union[str,lark.Tree]
+
+class FEType:
+    # Overridden
+    def bbtype(self) -> BBType:
+        raise UnexpectedException()
+
+    # Overridden
+    def emit(self, ib:InstrBuilder, val:Val, post:bool):
+        pass
+
+class FEInt(FEType):
+    def bbtype(self) -> BBType:
+        return BBZ
+
+class FEBool(FEType):
+    def bbtype(self) -> BBType:
+        return BBB
+
+class FERange(FEType):
+    def __init__(self, upper:Val):
+        self.upper = upper
+
+    def bbtype(self) -> BBType:
+        return BBZ
+
+    def emit(self, ib:InstrBuilder, val:Val, post:bool):
+        t0 = ib.target_or_next_temporary(None)
+        t1 = ib.target_or_next_temporary(None)
+        ib.emit(Le(t0, 0, val))
+        ib.emit_condition(t0, post)
+        ib.emit(Lt(t1, val, self.upper))
+        ib.emit_condition(t1, post)
+
+class FETuple(FEType):
+    def __init__(self, members):
+        self.members = members
+
+    def bbtype(self) -> BBType:
+        return BBTuple([m.bbtype() for m in self.members])
+
+    def emit(self, ib:InstrBuilder, val:Val, post:bool):
+        pass   # TODO: conditions on members
+
+class FEArray(FEType):
+    def __init__(self, element):
+        self.element = element
+
+    def bbtype(self) -> BBType:
+        return BBArray(self.element.bbtype())
+
+    def emit(self, ib:InstrBuilder, val:Val, post:bool):
+        pass   # TODO: conditions on element
+
+# TODO: deal with empty union
+class FEUnion(FEType):
+    def __init__(self, options):
+        self.options = options
+
+    def bbtype(self) -> BBType:
+        return flat_union([o.bbtype() for o in self.options])
+
+    def emit(self, ib:InstrBuilder, val:Val, post:bool):
+        pass   # TODO: conditions on members
+
 
 def token_value(ast: Ast) -> str:
     if isinstance(ast, lark.Token):
@@ -47,11 +112,10 @@ def unary(name:str, dest:Reg, v:Val) -> Instr:
         raise Unimplemented(f'Unary {name}')
 
 class FuncInfo:
-    def __init__(self, entrypoint:int, argcount:int, ret:BBType, ret_register:Reg, outers:set[str]):
+    def __init__(self, entrypoint:int, argcount:int, ret:FEType, outers:set[str]):
         self.entrypoint = entrypoint
         self.argcount = argcount
         self.ret = ret
-        self.ret_register = ret_register
         self.outers = set(outers)
         self.finished = False
 
@@ -77,26 +141,27 @@ class InstrBuilder:
         self.tempnum += 1
         return result
 
-    def visit_type_bb(self, ast: Ast) -> BBType:
+    def visit_type(self, ast: Ast) -> FEType:
         if isinstance(ast, lark.Token):
             if ast.value == 'int':
-                return BBZ
+                return FEInt()
             elif ast.value == 'bool':
-                return BBB
+                return FEBool()
             else:
                 raise Unimplemented(f'Unimplemented type token {ast.value}')
         elif isinstance(ast, lark.Tree):
             if ast.data == 'range':
-                return BBZ
+                upper = self.visit_expr(ast.children[0], None)
+                return FERange(upper)
             elif ast.data == 'tuple':
-                ts = [self.visit_type_bb(e) for e in ast.children]
-                return BBTuple(ts)
+                ts = [self.visit_type(e) for e in ast.children]
+                return FETuple(ts)
             elif ast.data == 'array':
-                t = self.visit_type_bb(ast.children[0])
-                return BBArray(t)
+                t = self.visit_type(ast.children[0])
+                return FEArray(t)
             elif ast.data == 'union':
-                ts = [self.visit_type_bb(e) for e in ast.children]
-                return flat_union(ts)
+                ts = [self.visit_type(e) for e in ast.children]
+                return FEUnion(ts)
             else:
                 raise Unimplemented(f'Unimplemented type tree {ast.data}')
         else:
@@ -104,52 +169,18 @@ class InstrBuilder:
 
     def emit_condition(self, r:Val, post:bool):
         if post:
-            self.emit(Postcondition(r))
+            self.emit(Assert(r,'postcondition'))
         else:
             self.emit(Precondition(r))
-
-    def visit_type_cond(self, ast: Ast, val:Optional[Val], post:bool):
-        if isinstance(ast, lark.Token):
-            if ast.value == 'int':
-                pass
-            elif ast.value == 'bool':
-                pass
-            else:
-                raise Unimplemented(f'Unimplemented type token {ast.value}')
-        elif isinstance(ast, lark.Tree):
-            if ast.data == 'range':
-                upper = self.visit_expr(ast.children[0],None)
-                if isinstance(val, int) or isinstance(val, Reg):
-                    t0 = self.target_or_next_temporary(None)
-                    t1 = self.target_or_next_temporary(None)
-                    self.emit(Le(t0, 0, val))
-                    self.emit_condition(t0, post)
-                    self.emit(Lt(t1, val, upper))
-                    self.emit_condition(t1, post)
-                else:
-                    raise Unimplemented('Cannot currently put range inside other thing')
-            elif ast.data == 'tuple':
-                for e in ast.children:
-                    self.visit_type_cond(e,None,post)
-            elif ast.data == 'array':
-                self.visit_type_cond(ast.children[0],None,post)
-            elif ast.data == 'union':
-                for e in ast.children:
-                    self.visit_type_cond(e,None,post)
-            else:
-                raise Unimplemented(f'Unimplemented type tree {ast.data}')
-        else:
-            raise Unimplemented('Unimplemented type non-tree non-token')
-
 
     def visit_args(self, args: list[Ast]):
         for arg in args:
             if isinstance(arg, lark.Tree):
                 x, t = arg.children
                 name = token_value(x)
-                typ = self.visit_type_bb(t)
-                self.emit(Arg(Reg(name), typ))
-                self.visit_type_cond(t, Reg(name), False)
+                typ = self.visit_type(t)
+                self.emit(Arg(Reg(name), typ.bbtype()))
+                typ.emit(self, Reg(name), False)
             else:
                 raise Unimplemented('Unimplemented arg non-tree')
 
@@ -174,8 +205,7 @@ class InstrBuilder:
                 if f in self.func_infos:
                     raise FuncAlreadyDefinedException(f)
                 self.current_func = f
-                ret_register = self.target_or_next_temporary(None)
-                func_info = FuncInfo(len(self.instrs), len(args), self.visit_type_bb(ret), ret_register, self.outers)
+                func_info = FuncInfo(len(self.instrs), len(args), self.visit_type(ret), self.outers)
                 self.func_infos[f] = func_info
                 self.emit(Fn())
                 self.visit_args(args)
@@ -194,8 +224,10 @@ class InstrBuilder:
                     raise DuplicateReturnStatementException()
                 e, = ast.children
                 val = self.visit_expr(e, None)
-                val2 = self.func_infos[self.current_func].ret_register
-                self.emit(Coerce(val2, val, self.func_infos[self.current_func].ret))
+                val2 = self.target_or_next_temporary(None)
+                rtype = self.func_infos[self.current_func].ret
+                self.emit(Coerce(val2, val, rtype.bbtype()))
+                rtype.emit(self, val2, True)
                 self.emit(Ret(val2))
                 self.func_infos[self.current_func].finished = True
                 return None
