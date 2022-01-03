@@ -561,6 +561,26 @@ class Arr(Instr):
     def remap(self, m:RegRemapping) -> Instr:
         return Arr(m.reg(self.dest), m.val(self.r))
 
+class Append(Instr):
+    def __init__(self, dest:Reg, r0:Val, r1:Val):
+        self.dest = dest
+        self.r0 = r0
+        self.r1 = r1
+
+    def __repr__(self):
+        return f'{self.dest} <- {self.r0} ++ {self.r1}'
+
+    def exec(self, rf:RegFile):
+        z0,t0 = rf.get(self.r0)
+        z1,t1 = rf.get(self.r1)
+        if isinstance(t0, BBArray) and isinstance(t1, BBArray):
+            t = flat_union([t0, t1])
+            z0c = rf.coerce(t, t0, z0)
+            z1c = rf.coerce(t, t1, z1)
+            rf.put(self.dest, t, z3.Concat(z0c, z1c))
+        else:
+            raise Unimplemented("Can currently only append arrays")
+
 class Assert(Instr):
     def __init__(self, r:Val, msg:str):
         self.r = r

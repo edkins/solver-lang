@@ -55,9 +55,11 @@ ge: aexpr ">=" aexpr
 ne: aexpr "!=" aexpr
 
 ?aexpr: mexpr
+      | append
       | add
       | sub
 
+append: aexpr "++" mexpr
 add: aexpr "+" mexpr
 sub: aexpr "-" mexpr
 

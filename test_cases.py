@@ -57,6 +57,9 @@ def test_mismatched_tuple_eq():
 def test_tuple_eq_array():
     assert "True : bool\n" == run_script("[1] == arr[1]")
 
+def test_array_append():
+    assert "[1, 2, 3] : array[int]\n" == run_script("arr[1] ++ arr[2,3]")
+
 def test_assert_true():
     run_script("""
 x = 1
@@ -362,5 +365,31 @@ fn f() -> union[int,bool] {
     return 34
 }
 assert f() + 1 == 35
+""")
+
+def test_array_of_range():
+    run_script("""
+fn f(xs: array (range 3)) -> int {
+    return len xs
+}
+assert f([0,1,2]) == 3
+""")
+
+def test_array_of_range_assert():
+    run_script("""
+fn f(xs: array (range 3)) -> int {
+    assert (xs ++ arr[0])[0] >= 0
+    return len xs
+}
+assert f([0,1,2]) == 3
+""")
+
+def test_array_of_range_fail():
+    with pytest.raises(AssertionException):
+        run_script("""
+fn f(xs: array (range 3)) -> int {
+    return len xs
+}
+assert f([0,1,3]) == 3
 """)
 

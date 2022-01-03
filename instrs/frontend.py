@@ -98,6 +98,8 @@ def binop(name:str, dest:Reg, v0:Val, v1:Val) -> Instr:
         return Mul(dest, v0, v1)
     elif name == 'lookup':
         return Lookup(dest, v0, v1)
+    elif name == 'append':
+        return Append(dest, v0, v1)
     else:
         raise Unimplemented(f'Binop {name}')
 
@@ -273,7 +275,7 @@ class InstrBuilder:
             else:
                 return result
         elif isinstance(ast, lark.Tree):
-            if ast.data in ['eq','ne','lt','le','gt','ge','add','sub','mul','lookup']:
+            if ast.data in ['eq','ne','lt','le','gt','ge','add','sub','mul','lookup','append']:
                 e0, e1 = ast.children
                 v0 = self.visit_expr(e0,None)
                 v1 = self.visit_expr(e1,None)
