@@ -4,6 +4,7 @@ from typing import Union, Optional
 from instrs.backbone import *
 from instrs.instr import *
 from instrs.errors import *
+from instrs.regfile import *
 
 Ast = Union[str,lark.Tree]
 
