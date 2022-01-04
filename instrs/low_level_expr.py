@@ -379,6 +379,9 @@ class LLCoerceCheck(LLExpr):
         self.bb = bb
         self.e = e
 
+    def __repr__(self):
+        return f'check[{self.bb}]{self.e}'
+
     def z3expr(self, rf:RegFile, s:list[tuple[LLVar,z3.ExprRef]]) -> z3.BoolRef:
         z0 = self.e.z3expr(rf, s)
         z, c = rf.coerce_check(self.bb, self.e.bbtype(), z0)
