@@ -209,25 +209,37 @@ def pairwise_union(t0: BBType, t1: BBType) -> Optional[BBType]:
     else:
         return None
 
-def flat_union(bbs: list[BBType]):
+def flat_union(bbs: list[BBType]) -> BBType:
+    stuff = flat_union_rearrange(bbs)
+    if len(stuff) == 0:
+        raise NoOptionsException()
+    elif len(stuff) == 1:
+        return stuff[0][0]
+    else:
+        return BBUnion([s[0] for s in stuff])
+
+def flat_union_rearrange(bbs: list[BBType]) -> list[tuple[BBType,list[tuple[int,int]]]]:
     result:list[BBType] = []
-    for bb in bbs:
-        for opt in bb.get_options():
-            addition = opt
+    result_order:list[list[tuple[int,int]]] = []
+    for j in range(len(bbs)):
+        opts = bbs[j].get_options()
+        for k in range(len(opts)):
+            addition = opts[k]
+            addition_order = [(j,k)]
             i = 0
             while i < len(result):
                 u = pairwise_union(result[i], addition)
                 if isinstance(u, BBType):
                     result.pop(i)
+                    addition_order += result_order.pop(i)
                     addition = u
                 else:
                     i += 1
             result.append(addition)
+            result_order.append(addition_order)
 
-    if len(result) == 0:
-        raise NoOptionsException()
-    elif len(result) == 1:
-        return result[0]
-    else:
-        result.sort(key=str)     # sort options alphabetically so that union[int,str]==union[str,int]
-        return BBUnion(result)
+    if len(result) != len(result_order):
+        raise UnexpectedException('oops')
+    stuff = list(zip(result, result_order))
+    stuff.sort(key=lambda s:str(s[0]))     # sort options alphabetically so that union[int,str]==union[str,int]
+    return stuff

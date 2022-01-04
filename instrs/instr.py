@@ -6,7 +6,7 @@ from instrs.backbone import *
 from instrs.errors import *
 from instrs.misc import sequence_zs
 from instrs.regfile import *
-from instrs.low_level_expr import LLBool
+from instrs.low_level_expr import LLExpr
 
 class Instr:
     # Overridden
@@ -32,17 +32,17 @@ class Mov(Instr):
     def remap(self, m:RegRemapping) -> Instr:
         return Mov(m.reg(self.dest), m.val(self.r))
 
-class BoolExpr(Instr):
-    def __init__(self, dest:Reg, e:LLBool):
+class Expr(Instr):
+    def __init__(self, dest:Reg, e:LLExpr):
         self.dest = dest
         self.e = e
 
     def __repr__(self):
-        return f'{self.dest} <- {self.e} : bool'
+        return f'{self.dest} <- {self.e} : {self.e.bbtype()}'
 
     def exec(self, rf:RegFile):
-        z = self.e.z3expr(rf)
-        rf.put(self.dest, BBB, z)
+        z = self.e.z3expr(rf, [])
+        rf.put(self.dest, self.e.bbtype(), z)
 
 class Add(Instr):
     def __init__(self, dest:Reg, r0:Val, r1:Val):
@@ -353,33 +353,37 @@ class Append(Instr):
             raise Unimplemented("Can currently only append arrays")
 
 class Assert(Instr):
-    def __init__(self, r:Val, msg:str):
-        self.r = r
+    def __init__(self, e:LLExpr, msg:str):
+        if e.bbtype() != BBB:
+            raise UnexpectedException(f'Assertion condition must be bool, got {e.bbtype()}')
+        self.e = e
         self.msg = msg
 
     def __repr__(self):
-        return f'assert {self.r}'
+        return f'assert {self.e} "{self.msg}"'
 
     def exec(self, rf:RegFile):
-        z = rf.get_coerce(self.r, BBB)
+        z = self.e.z3expr(rf, [])
         rf.check(z, self.msg)
 
     def remap(self, m:RegRemapping) -> Instr:
-        return Assert(m.val(self.r), self.msg)
+        return Assert(self.e.remap(m), self.msg)
 
 class Precondition(Instr):
-    def __init__(self, r:Val):
-        self.r = r
+    def __init__(self, e:LLExpr):
+        if e.bbtype() != BBB:
+            raise UnexpectedException(f'Precondition should be bool, got {e.bbtype()}')
+        self.e = e
 
     def __repr__(self):
-        return f'precondition {self.r}'
+        return f'precondition {self.e}'
 
     def exec(self, rf:RegFile):
-        z = rf.get_coerce(self.r, BBB)
+        z = self.e.z3expr(rf, [])
         rf.assume(z)
 
     def remap(self, m:RegRemapping) -> Instr:
-        return Precondition(m.val(self.r))
+        return Precondition(self.e.remap(m))
 
 
 class Unreachable(Instr):

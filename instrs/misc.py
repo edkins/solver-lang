@@ -8,6 +8,14 @@ def and_zs(zs: list[z3.BoolRef]) -> z3.BoolRef:
     else:
         return z3.And(*zs)
 
+def or_zs(zs: list[z3.BoolRef]) -> z3.BoolRef:
+    if len(zs) == 0:
+        return z3.BoolVal(False)
+    elif len(zs) == 1:
+        return zs[0]
+    else:
+        return z3.Or(*zs)
+
 def sequence_zs(sort:z3.SortRef, zs: list[z3.ExprRef]) -> z3.ExprRef:
     if len(zs) == 0:
         return z3.Empty(sort)

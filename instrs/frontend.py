@@ -5,6 +5,7 @@ from instrs.backbone import *
 from instrs.instr import *
 from instrs.errors import *
 from instrs.regfile import *
+from instrs.low_level_expr import *
 
 Ast = Union[str,lark.Tree]
 
@@ -14,62 +15,91 @@ class FEType:
         raise UnexpectedException()
 
     # Overridden
-    def emit(self, ib:InstrBuilder, val:Val, post:bool):
-        pass
+    def opt_condition(self, val:LLExpr, i:int) -> LLExpr:
+        raise UnexpectedException()
+
+    def condition(self, val:LLExpr) -> LLExpr:
+        bb = self.bbtype()
+        if val.bbtype() != bb:
+            raise UnexpectedException(f'Condition: expecting {bb} got {val.bbtype()}')
+        if isinstance(bb, BBUnion):
+            varnum = val.unused_var()
+            xs = [LLVar(varnum,opt) for opt in bb.options]
+            conds = [self.opt_condition(xs[i],i) for i in range(len(bb.options))]
+            return LLUnion(val, xs, conds)
+        else:
+            return self.opt_condition(val,0)
 
 class FEInt(FEType):
     def bbtype(self) -> BBType:
         return BBZ
 
+    def opt_condition(self, val:LLExpr, i:int) -> LLExpr:
+        return LLBoolVal(True)
+
 class FEBool(FEType):
     def bbtype(self) -> BBType:
         return BBB
 
+    def opt_condition(self, val:LLExpr, i:int) -> LLExpr:
+        return LLBoolVal(True)
+
 class FERange(FEType):
     def __init__(self, upper:Val):
-        self.upper = upper
+        self.upper = ll_value(upper, BBZ)
 
     def bbtype(self) -> BBType:
         return BBZ
 
-    def emit(self, ib:InstrBuilder, val:Val, post:bool):
-        t0 = ib.target_or_next_temporary(None)
-        t1 = ib.target_or_next_temporary(None)
-        ib.emit(Le(t0, 0, val))
-        ib.emit_condition(t0, post)
-        ib.emit(Lt(t1, val, self.upper))
-        ib.emit_condition(t1, post)
+    def opt_condition(self, val:LLExpr, i:int) -> LLExpr:
+        return ll_and([LLLe(LLIntVal(0), val), LLLt(val, self.upper)])
 
 class FETuple(FEType):
-    def __init__(self, members):
-        self.members = members
+    def __init__(self, members:list[FEType]):
+        self.members = tuple(members)
 
     def bbtype(self) -> BBType:
         return BBTuple([m.bbtype() for m in self.members])
 
-    def emit(self, ib:InstrBuilder, val:Val, post:bool):
-        pass   # TODO: conditions on members
+    def opt_condition(self, val:LLExpr, i:int) -> LLExpr:
+        return ll_and([self.members[i].condition(LLTupleMember(val, i)) for i in range(len(self.members))])
 
 class FEArray(FEType):
-    def __init__(self, element):
+    def __init__(self, element:FEType):
         self.element = element
 
     def bbtype(self) -> BBType:
         return BBArray(self.element.bbtype())
 
-    def emit(self, ib:InstrBuilder, val:Val, post:bool):
-        pass   # TODO: conditions on element
+    def opt_condition(self, val:LLExpr, i:int) -> LLExpr:
+        x = LLVar(val.unused_var(), BBZ)
+        in_range = ll_and([LLLe(LLIntVal(0), x), LLLt(x, LLArrayLength(val))])
+        return LLForAll(x, ll_implies(in_range, self.element.condition(LLArrayElement(val, x))))
 
 # TODO: deal with empty union
 class FEUnion(FEType):
-    def __init__(self, options):
-        self.options = options
+    def __init__(self, options:list[FEType]):
+        if len(options) == 0:
+            raise Unimplemented('Cannot currently handle empty union')
+        self.options = tuple(options)
+        self.stuff = flat_union_rearrange([o.bbtype() for o in self.options])
 
     def bbtype(self) -> BBType:
-        return flat_union([o.bbtype() for o in self.options])
+        if len(self.stuff) == 0:
+            raise UnexpectedException('Cannot handle empty union')
+        elif len(self.stuff) == 1:
+            return self.stuff[0][0]
+        else:
+            return BBUnion([s[0] for s in self.stuff])
 
-    def emit(self, ib:InstrBuilder, val:Val, post:bool):
-        pass   # TODO: conditions on members
+    def opt_condition(self, val:LLExpr, i:int) -> LLExpr:
+        conds = []
+        bb,pairs = self.stuff[i]
+        for j,k in pairs:
+            if val.bbtype().get_options()[k] != self.options[j].bbtype():
+                raise UnexpectedException(f'Expecting {self.options[j].bbtype()}, got {val.bbtype().get_options()[k]}')
+            conds.append(self.options[j].opt_condition(val,k))
+        return ll_or(conds)
 
 
 def token_value(ast: Ast) -> str:
@@ -170,12 +200,6 @@ class InstrBuilder:
         else:
             raise Unimplemented('Unimplemented type non-tree non-token')
 
-    def emit_condition(self, r:Val, post:bool):
-        if post:
-            self.emit(Assert(r,'postcondition'))
-        else:
-            self.emit(Precondition(r))
-
     def visit_args(self, args: list[Ast]):
         for arg in args:
             if isinstance(arg, lark.Tree):
@@ -183,7 +207,8 @@ class InstrBuilder:
                 name = token_value(x)
                 typ = self.visit_type(t)
                 self.emit(Arg(Reg(name), typ.bbtype()))
-                typ.emit(self, Reg(name), False)
+                expr = typ.condition(ll_value(Reg(name), typ.bbtype()))
+                self.emit(Precondition(expr))
             else:
                 raise Unimplemented('Unimplemented arg non-tree')
 
@@ -199,7 +224,7 @@ class InstrBuilder:
             elif ast.data == 'assert':
                 e, = ast.children
                 val = self.visit_expr(e, None)
-                self.emit(Assert(val,'assert'))
+                self.emit(Assert(ll_value(val, BBB),'assert'))
                 return None
             elif ast.data == 'pushfn':
                 f = token_value(ast.children[0])
@@ -230,7 +255,8 @@ class InstrBuilder:
                 val2 = self.target_or_next_temporary(None)
                 rtype = self.func_infos[self.current_func].ret
                 self.emit(Coerce(val2, val, rtype.bbtype()))
-                rtype.emit(self, val2, True)
+                cond = rtype.condition(ll_value(val2, rtype.bbtype()))
+                self.emit(Assert(cond, "postcondition"))
                 self.emit(Ret(val2))
                 self.func_infos[self.current_func].finished = True
                 return None
@@ -317,7 +343,7 @@ class InstrBuilder:
                             raise UnexpectedException('too few args')
                         self.emit(Mov(instr.dest, vs.pop(0)))
                     elif isinstance(instr, Precondition):
-                        self.emit(Assert(instr.r, 'precondition'))
+                        self.emit(Assert(instr.e, 'precondition'))
                     elif isinstance(instr, Ret):
                         if len(vs) != 0:
                             raise UnexpectedException('too many args')
