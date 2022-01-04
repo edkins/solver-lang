@@ -341,7 +341,7 @@ class InstrBuilder:
                     elif isinstance(instr, Arg):
                         if len(vs) == 0:
                             raise UnexpectedException('too few args')
-                        self.emit(Mov(instr.dest, vs.pop(0)))
+                        self.emit(Coerce(instr.dest, vs.pop(0), instr.typ))
                     elif isinstance(instr, Precondition):
                         self.emit(Assert(instr.e, 'precondition'))
                     elif isinstance(instr, Ret):

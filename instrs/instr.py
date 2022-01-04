@@ -352,6 +352,9 @@ class Append(Instr):
         else:
             raise Unimplemented("Can currently only append arrays")
 
+    def remap(self, m:RegRemapping) -> Instr:
+        return Append(m.reg(self.dest), m.val(self.r0), m.val(self.r1))
+
 class Assert(Instr):
     def __init__(self, e:LLExpr, msg:str):
         if e.bbtype() != BBB:
