@@ -97,7 +97,8 @@ class FEUnion(FEType):
         bb,pairs = self.stuff[i]
         for j,k in pairs:
             valc = LLCoerce(self.options[j].bbtype().get_options()[k], val)
-            conds.append(self.options[j].opt_condition(valc,k))
+            checkc = LLCoerceCheck(self.options[j].bbtype().get_options()[k], val)
+            conds.append(ll_and([checkc, self.options[j].opt_condition(valc,k)]))
         return ll_or(conds)
 
 

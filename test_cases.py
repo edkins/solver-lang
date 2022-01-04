@@ -401,10 +401,28 @@ fn f(x: union[range 3, range 5]) -> union[range 2, range 5] {
 assert f(3) == 3
 """)
 
+def test_union_of_ranges_fail():
+    with pytest.raises(AssertionException):
+        run_script("""
+fn f(x: union[range 3, range 5]) -> union[range 2, range 5] {
+    return x
+}
+assert f(5) == 5
+""")
+
 def test_union_of_tuples():
     run_script("""
 fn f(x: union[tuple[int,bool], tuple[bool,int]]) -> tuple[union[int,bool], union[bool,int]] {
     return x
 }
 assert f([4,true]) == [4,true]
+""")
+
+def test_union_of_tuples_fail():
+    with pytest.raises(AssertionException):
+        run_script("""
+fn f(x: union[tuple[int,bool], tuple[bool,int]]) -> tuple[union[int,bool], union[bool,int]] {
+    return x
+}
+assert f([4,5]) == [4,5]
 """)

@@ -374,6 +374,25 @@ class LLUnion(LLExpr):
                 raise UnexpectedException(f'Conflicting union result types: {result} vs {o.bbtype()}')
         return result
 
+class LLCoerceCheck(LLExpr):
+    def __init__(self, bb:BBType, e:LLExpr):
+        self.bb = bb
+        self.e = e
+
+    def z3expr(self, rf:RegFile, s:list[tuple[LLVar,z3.ExprRef]]) -> z3.BoolRef:
+        z0 = self.e.z3expr(rf, s)
+        z, c = rf.coerce_check(self.bb, self.e.bbtype(), z0)
+        return c
+
+    def remap(self, m:RegRemapping) -> LLCoerceCheck:
+        return LLCoerceCheck(self.bb, self.e.remap(m))
+
+    def unused_var(self) -> int:
+        return self.e.unused_var()
+
+    def bbtype(self) -> BBType:
+        return BBB
+
 class LLCoerce(LLExpr):
     def __init__(self, bb:BBType, e:LLExpr):
         self.bb = bb
