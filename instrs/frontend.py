@@ -96,9 +96,8 @@ class FEUnion(FEType):
         conds = []
         bb,pairs = self.stuff[i]
         for j,k in pairs:
-            if val.bbtype().get_options()[k] != self.options[j].bbtype():
-                raise UnexpectedException(f'Expecting {self.options[j].bbtype()}, got {val.bbtype().get_options()[k]}')
-            conds.append(self.options[j].opt_condition(val,k))
+            valc = LLCoerce(self.options[j].bbtype().get_options()[k], val)
+            conds.append(self.options[j].opt_condition(valc,k))
         return ll_or(conds)
 
 

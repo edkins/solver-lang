@@ -1,6 +1,7 @@
 from typing import Union, Callable
 import z3
 from instrs.backbone import *
+from instrs.misc import and_zs
 
 class Reg:
     def __init__(self, name:str):
@@ -68,87 +69,111 @@ class RegFile:
         return self.coerce(bb, t, z)
 
     def coerce(self, dt:BBType, t:BBType, z:z3.ExprRef) -> z3.ExprRef:
+        result, check = self.coerce_check(dt, t, z)
+        self.check(check, "coerce")
+        return result
+
+    def coerce_check(self, dt:BBType, t:BBType, z:z3.ExprRef) -> tuple[z3.ExprRef, z3.BoolRef]:
         if t == dt:
-            return z
+            return z, z3.BoolVal(True)
         else:
             t_opts = t.get_options()
             result = None
+            check = None
             for i in range(len(t_opts)):
                 try:
                     t_opt = t_opts[i]
                     z_opt = t.z3accessor(i,z)
                     if t_opt == dt:
                         result_opt = z_opt
+                        check_opt = z3.BoolVal(True)
                     elif isinstance(dt, BBArray):
-                        result_opt = self.coerce_array(dt, t_opt, z_opt)
+                        result_opt, check_opt = self.coerce_array(dt, t_opt, z_opt)
                     elif isinstance(dt, BBTuple):
-                        result_opt = self.coerce_tuple(dt, t_opt, z_opt)
+                        result_opt, check_opt = self.coerce_tuple(dt, t_opt, z_opt)
                     elif isinstance(dt, BBUnion):
-                        result_opt = self.coerce_union(dt, t_opt, z_opt)
+                        result_opt, check_opt = self.coerce_union(dt, t_opt, z_opt)
                     else:
                         raise TypeException(f'Cannot coerce {t_opt} to {dt}')
 
                     if result == None:
                         result = result_opt
+                        check = check_opt
                     else:
                         result = z3.If(t.z3recognizer(i,z), result_opt, result)
+                        check = z3.If(t.z3recognizer(i,z), check_opt, result)
                 except TypeException as e:
                     try:
                         self.check(z3.Not(t.z3recognizer(i,z)), f'union type check')
                     except AssertionException as e1:
                         raise e
-            if isinstance(result, z3.ExprRef):
-                return result
+            if isinstance(result, z3.ExprRef) and isinstance(check, z3.BoolRef):
+                return result, check
             else:
                 raise UnexpectedException('No result')
 
-    def coerce_array(self, dt:BBArray, t:BBType, z:z3.ExprRef) -> z3.ExprRef:
+    def coerce_array(self, dt:BBArray, t:BBType, z:z3.ExprRef) -> tuple[z3.ExprRef,z3.BoolRef]:
         if isinstance(t, BBArray):
-            if not isinstance(z, z3.SeqRef):
-                raise UnexpectedException(f'Expected SeqRef at this point, got {type(z)}')
             x = t.z3var('.x')
+            if not isinstance(x, z3.SeqRef):
+                raise UnexpectedException(f'Expected SeqRef at this point, got {type(x)}')
+            zc,cc = self.coerce_check(dt.element, t.element, x[0])
+
             name = 'coerce[{dt},{t}]'
             f = z3.RecFunction(name, t.z3sort(), dt.z3sort())
-            zc = self.coerce(dt.element, t.element, z[0])
             z3.RecAddDefinition(f, [x], z3.If(
                 x == z3.Empty(t.z3sort()),
                 z3.Empty(dt.z3sort()),
                 z3.Concat(z3.Unit(zc), f(z3.SubSeq(x, 1, z3.Length(x)-1)))))
-            return f(z)
+
+            cname = 'coerce_check[{dt},{t}]'
+            cf = z3.RecFunction(cname, t.z3sort(), z3.BoolSort())
+            z3.RecAddDefinition(cf, [x], z3.If(
+                x == z3.Empty(t.z3sort()),
+                z3.BoolVal(True),
+                z3.And(cc, cf(z3.SubSeq(x, 1, z3.Length(x)-1)))))
+            return f(z), cf(z)
         elif isinstance(t, BBTuple):
             zs = []
+            cs = []
             for i in range(t.tuple_len()):
-                z0 = self.coerce(dt.element, t.members[i], t.z3member(i,z))
-                zs.append(z0)
-            return sequence_zs(dt.z3sort(), zs)
+                zc,cc = self.coerce_check(dt.element, t.members[i], t.z3member(i,z))
+                zs.append(zc)
+                cs.append(cc)
+            return sequence_zs(dt.z3sort(), zs), and_zs(cs)
         else:
             raise TypeException('Cannot coerce {t} to {dt}')
 
-    def coerce_tuple(self, dt:BBTuple, t:BBType, z:z3.ExprRef) -> z3.ExprRef:
+    def coerce_tuple(self, dt:BBTuple, t:BBType, z:z3.ExprRef) -> tuple[z3.ExprRef,z3.BoolRef]:
         if isinstance(t, BBTuple):
             if t.tuple_len() != dt.tuple_len():
                 raise TypeException(f'Cannot coerce {t} to {dt} (tuples are different lengths)')
             zs = []
+            cs = []
             for i in range(t.tuple_len()):
-                zs.append(self.coerce(dt.members[i], t.members[i], t.z3member(i,z)))
-            return dt.z3tuple(zs)
+                zc,cc = self.coerce_check(dt.members[i], t.members[i], t.z3member(i,z))
+                zs.append(zc)
+                cs.append(cc)
+            return dt.z3tuple(zs), and_zs(cs)
         elif isinstance(t, BBArray):
             if not isinstance(z, z3.SeqRef):
                 raise UnexpectedException(f'Expecting SeqRef, got {type(z)}')
-            self.check(z3.Length(z) == z3.IntVal(dt.tuple_len()), 'Array length')
+            cs = [z3.Length(z) == z3.IntVal(dt.tuple_len())]
             zs = []
             for i in range(dt.tuple_len()):
-                zs.append(self.coerce(dt.members[i], t.element, z[i]))
-            return dt.z3tuple(zs)
+                zc, cc = self.coerce_check(dt.members[i], t.element, z[i])
+                zs.append(zc)
+                cs.append(cc)
+            return dt.z3tuple(zs), and_zs(cs)
         else:
             raise TypeException(f'Cannot coerce {t} to {self}')
 
-    def coerce_union(self, dt:BBUnion, t:BBType, z:z3.ExprRef) -> z3.ExprRef:
+    def coerce_union(self, dt:BBUnion, t:BBType, z:z3.ExprRef) -> tuple[z3.ExprRef,z3.BoolRef]:
         opts = dt.get_options()
         for i in range(len(opts)):
             try:
-                zc = self.coerce(opts[i], t, z)
-                return dt.z3constructor(i, zc)
+                zc,cc = self.coerce_check(opts[i], t, z)
+                return dt.z3constructor(i, zc), cc
             except TypeException:
                 pass
         raise TypeException('Cannot coerce {t} to {dt} (no options match)')

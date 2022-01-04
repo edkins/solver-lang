@@ -393,3 +393,18 @@ fn f(xs: array (range 3)) -> int {
 assert f([0,1,3]) == 3
 """)
 
+def test_union_of_ranges():
+    run_script("""
+fn f(x: union[range 3, range 5]) -> union[range 2, range 5] {
+    return x
+}
+assert f(3) == 3
+""")
+
+def test_union_of_tuples():
+    run_script("""
+fn f(x: union[tuple[int,bool], tuple[bool,int]]) -> tuple[union[int,bool], union[bool,int]] {
+    return x
+}
+assert f([4,true]) == [4,true]
+""")

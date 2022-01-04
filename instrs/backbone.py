@@ -19,7 +19,7 @@ class BBType:
     # Overridden by BBUnion
     def z3accessor(self, i:int, z:z3.ExprRef) -> z3.ExprRef:
         if z.sort() != self.z3sort():
-            raise UnexpectedException('z is wrong sort, expected {self.z3sort()} got {z.sort()}')
+            raise UnexpectedException(f'z is wrong sort, expected {self.z3sort()} got {z.sort()}')
         elif i == 0:
             return z
         else:
