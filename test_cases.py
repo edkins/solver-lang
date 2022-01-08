@@ -418,6 +418,22 @@ fn f(x: union[tuple[int,bool], tuple[bool,int]]) -> tuple[union[int,bool], union
 assert f([4,true]) == [4,true]
 """)
 
+def test_union_of_tuples_implicit_coerce_fail():
+    with pytest.raises(AssertionException):
+        run_script("""
+fn f(x: tuple[union[int,bool], union[int,bool]]) -> union[tuple[int,bool], tuple[bool,int]] {
+    return x
+}
+""")
+
+def test_union_of_tuples_return_fail():
+    with pytest.raises(AssertionException):
+        run_script("""
+fn f() -> union[tuple[int,bool], tuple[bool,int]] {
+    return [4,5]
+}
+""")
+
 def test_union_of_tuples_fail():
     with pytest.raises(AssertionException):
         run_script("""

@@ -93,12 +93,16 @@ class FEUnion(FEType):
             return BBUnion([s[0] for s in self.stuff])
 
     def opt_condition(self, val:LLExpr, i:int) -> LLExpr:
-        conds = []
+        conds:list[LLExpr] = []
         bb,pairs = self.stuff[i]
         for j,k in pairs:
-            valc = LLCoerce(self.options[j].bbtype().get_options()[k], val)
-            checkc = LLCoerceCheck(self.options[j].bbtype().get_options()[k], val)
-            conds.append(ll_and([checkc, self.options[j].opt_condition(valc,k)]))
+            ktype = self.options[j].bbtype().get_options()[k]
+            if ktype == val.bbtype():
+                cond = self.options[j].opt_condition(val,k)
+            else:
+                var = LLVar(val.unused_var(), ktype)
+                cond = LLCoerce(ktype, val, var, self.options[j].opt_condition(var,k), LLBoolVal(False))
+            conds.append(cond)
         return ll_or(conds)
 
 

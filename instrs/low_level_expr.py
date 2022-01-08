@@ -251,7 +251,7 @@ class LLForAll(LLExpr):
     def remap(self, m:RegRemapping) -> LLForAll:
         return LLForAll(self.v.remap(m), self.e.remap(m))
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return f'(forall {self.v}:{self.e})'
 
     def unused_var(self) -> int:
@@ -264,6 +264,9 @@ class LLTupleMember(LLExpr):
     def __init__(self, e:LLExpr, i:int):
         self.e = e
         self.i = i
+
+    def __repr__(self) -> str:
+        return f'{self.e}.{self.i}'
 
     def z3expr(self, rf:RegFile, s:list[tuple[LLVar,z3.ExprRef]]) -> z3.ExprRef:
         bb = self.e.bbtype()
@@ -336,6 +339,9 @@ class LLUnion(LLExpr):
         self.xs = tuple(xs)
         self.opts = tuple(opts)
 
+    def __repr__(self) -> str:
+        return f'match {self.u} {", ".join(f"{x}->{opt}" for x,opt in zip(self.xs,self.opts))}'
+
     def z3expr(self, rf:RegFile, s:list[tuple[LLVar,z3.ExprRef]]) -> z3.ExprRef:
         bb = self.u.bbtype()
         if not isinstance(bb, BBUnion):
@@ -374,43 +380,36 @@ class LLUnion(LLExpr):
                 raise UnexpectedException(f'Conflicting union result types: {result} vs {o.bbtype()}')
         return result
 
-class LLCoerceCheck(LLExpr):
-    def __init__(self, bb:BBType, e:LLExpr):
-        self.bb = bb
-        self.e = e
-
-    def __repr__(self):
-        return f'check[{self.bb}]{self.e}'
-
-    def z3expr(self, rf:RegFile, s:list[tuple[LLVar,z3.ExprRef]]) -> z3.BoolRef:
-        z0 = self.e.z3expr(rf, s)
-        z, c = rf.coerce_check(self.bb, self.e.bbtype(), z0)
-        return c
-
-    def remap(self, m:RegRemapping) -> LLCoerceCheck:
-        return LLCoerceCheck(self.bb, self.e.remap(m))
-
-    def unused_var(self) -> int:
-        return self.e.unused_var()
-
-    def bbtype(self) -> BBType:
-        return BBB
-
 class LLCoerce(LLExpr):
-    def __init__(self, bb:BBType, e:LLExpr):
+    def __init__(self, bb:BBType, e:LLExpr, x:LLVar, fn:LLExpr, default:LLExpr):
         self.bb = bb
         self.e = e
+        self.x = x
+        self.fn = fn
+        self.default = default
+
+    def __repr__(self) -> str:
+        return f'coerce {self.e}:{self.bb} {self.x}->{self.fn} orelse {self.default}'
 
     def z3expr(self, rf:RegFile, s:list[tuple[LLVar,z3.ExprRef]]) -> z3.ExprRef:
+        for y,z in s:
+            if self.x.number == y.number:
+                raise UnexpectedException(f'Duplicated substitution variable {self.x}')
+
         z0 = self.e.z3expr(rf, s)
-        z, c = rf.coerce_check(self.bb, self.e.bbtype(), z0)
-        return z
+        zdefault = self.default.z3expr(rf, s)
+        try:
+            z, c = rf.coerce_check(self.bb, self.e.bbtype(), z0)
+            zfn = self.fn.z3expr(rf, s + [(self.x, z)])
+            return z3.If(c, zfn, zdefault)
+        except TypeException as e:
+            return zdefault
 
     def remap(self, m:RegRemapping) -> LLCoerce:
-        return LLCoerce(self.bb, self.e.remap(m))
+        return LLCoerce(self.bb, self.e.remap(m), self.x.remap(m), self.fn.remap(m), self.default.remap(m))
 
     def unused_var(self) -> int:
-        return self.e.unused_var()
+        return max(self.x.unused_var(), self.e.unused_var(), self.fn.unused_var(), self.default.unused_var())
 
     def bbtype(self) -> BBType:
         return self.bb

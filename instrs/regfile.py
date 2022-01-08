@@ -79,7 +79,7 @@ class RegFile:
         else:
             t_opts = t.get_options()
             result = None
-            check = None
+            check = z3.BoolVal(True)
             for i in range(len(t_opts)):
                 try:
                     t_opt = t_opts[i]
@@ -98,19 +98,18 @@ class RegFile:
 
                     if result == None:
                         result = result_opt
-                        check = check_opt
                     else:
                         result = z3.If(t.z3recognizer(i,z), result_opt, result)
-                        check = z3.If(t.z3recognizer(i,z), check_opt, result)
+                    check = z3.If(t.z3recognizer(i,z), check_opt, check)
                 except TypeException as e:
                     try:
-                        self.check(z3.Not(t.z3recognizer(i,z)), f'union type check')
+                        check = z3.And(z3.Not(t.z3recognizer(i,z)), check)
                     except AssertionException as e1:
                         raise e
             if isinstance(result, z3.ExprRef) and isinstance(check, z3.BoolRef):
                 return result, check
             else:
-                raise UnexpectedException('No result')
+                raise TypeException('No result')
 
     def coerce_array(self, dt:BBArray, t:BBType, z:z3.ExprRef) -> tuple[z3.ExprRef,z3.BoolRef]:
         if isinstance(t, BBArray):
