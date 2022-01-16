@@ -1,8 +1,17 @@
 ;;; Based on https://www.emacswiki.org/emacs/ModeTutorial
 ;;; and https://www.emacswiki.org/emacs/
 
+(defun verify-up-to-point ()
+  (interactive)
+  (let ((lines (process-lines "python" (concat load-file-name "../thin/emacs-mode.py"))))
+    (dolist (line lines)
+      (insert line))))
+
 ;;; Keymap
-(setq solverlang-mode-map (make-sparse-keymap))
+(setq solverlang-mode-map
+      (let ((mm (make-sparse-keymap)))
+	(define-key mm (kbd "C-c C-<return>") 'verify-up-to-point)
+	mm))
 
 ;;; Syntax table
 (setq solverlang-mode-syntax-table
@@ -42,6 +51,7 @@
 ;;; Define mode
 (define-derived-mode solverlang-mode prog-mode "Solverlang"
   "Major mode for editing Solver Language files"
+  (use-local-map solverlang-mode-map)
   (setq-local font-lock-defaults '(solverlang-font-lock-keywords))
   (setq-local indent-line-function 'solverlang-indent-line)
   (setq-local comment-start "# "))
