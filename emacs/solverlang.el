@@ -1,6 +1,8 @@
 ;;; Based on https://www.emacswiki.org/emacs/ModeTutorial
 ;;; and https://www.emacswiki.org/emacs/SampleMode
 
+(setq solverlang-doing-highlighting nil)
+
 (defun highlight-based-on-line (line)
   (let ((words (split-string line)))
     (let ((cmd (nth 0 words))
@@ -13,6 +15,13 @@
 	    (set-text-properties start end '(font-lock-face error)))
 	(error "Unexpected cmd received from python")))))
 
+(defun solverlang-remove-highlighting-hook (begin end)
+  (if (not solverlang-doing-highlighting)
+      (solverlang-actually-remove-highlighting)))
+
+(defun solverlang-actually-remove-highlighting ()
+      (set-text-properties (point-min) (point-max) nil))
+
 (defun verify-up-to-point ()
   (interactive)
   (let ((tempfile (make-temp-file "solverlang-input-"))
@@ -22,8 +31,11 @@
 	   (save-excursion (beginning-of-line) (point)))))
     (write-region 1 position tempfile)
     (let ((lines (process-lines "python" (concat load-file-name "../thin/emacs-mode.py") tempfile)))
+      (solverlang-actually-remove-highlighting)
+      (setq solverlang-doing-highlighting t)
       (dolist (line lines)
 	(highlight-based-on-line line))
+      (setq solverlang-doing-highlighting nil)
       (delete-file tempfile))))
 
 ;;; Keymap
@@ -74,7 +86,8 @@
   (setq-local font-lock-defaults '(solverlang-font-lock-keywords))
   (setq-local indent-line-function 'solverlang-indent-line)
   (setq-local comment-start "# ")
-  (setq-local left-margin-width 2))
+  (setq-local left-margin-width 2)
+  (add-hook 'before-change-functions 'solverlang-remove-highlighting-hook))
 
 ; Associate mode with .sl files
 (add-to-list 'auto-mode-alist '("\\.sl\\'" . solverlang-mode))
