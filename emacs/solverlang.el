@@ -1,11 +1,18 @@
 ;;; Based on https://www.emacswiki.org/emacs/ModeTutorial
-;;; and https://www.emacswiki.org/emacs/
+;;; and https://www.emacswiki.org/emacs/SampleMode
 
 (defun verify-up-to-point ()
   (interactive)
-  (let ((lines (process-lines "python" (concat load-file-name "../thin/emacs-mode.py"))))
-    (dolist (line lines)
-      (insert line))))
+  (let ((tempfile (make-temp-file "solverlang-input-"))
+	(position
+	 (if (looking-at "$")
+	     (point)
+	   (save-excursion (beginning-of-line) (point)))))
+    (write-region 1 position tempfile)
+    (let ((lines (process-lines "python" (concat load-file-name "../thin/emacs-mode.py") tempfile)))
+      (dolist (line lines)
+	(insert "[" line "]"))
+      (delete-file tempfile))))
 
 ;;; Keymap
 (setq solverlang-mode-map
