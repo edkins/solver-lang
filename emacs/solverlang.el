@@ -92,11 +92,16 @@
 	 (save-excursion (forward-line -1) (current-indentation)))
 	(prev-line-open-brace
 	 (save-excursion (forward-line -1) (looking-at ".*{")))
+	(prev-line-close-brace
+	 (save-excursion (forward-line -1) (looking-at ".*}")))
 	(current-line-close-brace
 	 (save-excursion (move-beginning-of-line nil) (looking-at ".*}"))))
     (let ((adjusted-indent
-	   (+ prev-line-indent (if prev-line-open-brace 2 0) (if current-line-close-brace -2 0))))
-    (if (not first-line) (indent-line-to adjusted-indent)))))
+	   (+ prev-line-indent
+	      (if prev-line-open-brace 2 0)
+	      (if current-line-close-brace -2 0)
+	      (if prev-line-close-brace -2 0))))
+      (if (not first-line) (indent-line-to adjusted-indent)))))
 
 ;;; Define mode
 (define-derived-mode solverlang-mode prog-mode "Solverlang"
