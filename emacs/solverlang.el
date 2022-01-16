@@ -11,9 +11,16 @@
 	  (status (nth 3 words)))
       (if (equal cmd "range")
 	  (if (equal status "ok")
-	      (set-text-properties start end '(font-lock-face success))
-	    (set-text-properties start end '(font-lock-face error)))
-	(error "Unexpected cmd received from python")))))
+	      (progn
+		(set-text-properties start end '(font-lock-face success))
+	        0)
+	    (progn
+	      (set-text-properties start end '(font-lock-face error))
+	      1))
+	(progn
+	  (error "Unexpected cmd received from python")
+	  1)))))
+	     
 
 (defun solverlang-remove-highlighting-hook (begin end)
   (if (not solverlang-doing-highlighting)
@@ -22,26 +29,36 @@
 (defun solverlang-actually-remove-highlighting ()
       (set-text-properties (point-min) (point-max) nil))
 
-(defun verify-up-to-point ()
+(defun solverlang-verify-up-to-point ()
   (interactive)
-  (let ((tempfile (make-temp-file "solverlang-input-"))
-	(position
+  (let ((position
 	 (if (looking-at "$")
 	     (point)
 	   (save-excursion (beginning-of-line) (point)))))
+    (solverlang-verify-up-to position)))
+
+(defun solverlang-verify-entire-buffer ()
+  (interactive)
+  (solverlang-verify-up-to (+ 1 (buffer-size))))
+
+(defun solverlang-verify-up-to (position)
+  (let ((tempfile (make-temp-file "solverlang-input-")))
     (write-region 1 position tempfile)
-    (let ((lines (process-lines "python" (concat load-file-name "../thin/emacs-mode.py") tempfile)))
+    (let ((lines (process-lines "python" (concat load-file-name "../thin/emacs-mode.py") tempfile))
+	  (error-count 0))
       (solverlang-actually-remove-highlighting)
       (setq solverlang-doing-highlighting t)
       (dolist (line lines)
-	(highlight-based-on-line line))
+	(setq error-count (+ error-count (highlight-based-on-line line))))
       (setq solverlang-doing-highlighting nil)
-      (delete-file tempfile))))
+      (delete-file tempfile)
+      (message (concat (number-to-string error-count) " error(s) encountered")))))
 
 ;;; Keymap
 (setq solverlang-mode-map
       (let ((mm (make-sparse-keymap)))
-	(define-key mm (kbd "C-c C-<return>") 'verify-up-to-point)
+	(define-key mm (kbd "C-c C-<return>") 'solverlang-verify-up-to-point)
+	(define-key mm (kbd "C-c C-b") 'solverlang-verify-entire-buffer)
 	mm))
 
 ;;; Syntax table
