@@ -1,6 +1,18 @@
 ;;; Based on https://www.emacswiki.org/emacs/ModeTutorial
 ;;; and https://www.emacswiki.org/emacs/SampleMode
 
+(defun highlight-based-on-line (line)
+  (let ((words (split-string line)))
+    (let ((cmd (nth 0 words))
+	  (start (string-to-number (nth 1 words)))
+	  (end (string-to-number (nth 2 words)))
+	  (status (nth 3 words)))
+      (if (equal cmd "range")
+	  (if (equal status "ok")
+	      (set-text-properties start end '(font-lock-face success))
+	    (set-text-properties start end '(font-lock-face error)))
+	(error "Unexpected cmd received from python")))))
+
 (defun verify-up-to-point ()
   (interactive)
   (let ((tempfile (make-temp-file "solverlang-input-"))
@@ -11,7 +23,7 @@
     (write-region 1 position tempfile)
     (let ((lines (process-lines "python" (concat load-file-name "../thin/emacs-mode.py") tempfile)))
       (dolist (line lines)
-	(insert "[" line "]"))
+	(highlight-based-on-line line))
       (delete-file tempfile))))
 
 ;;; Keymap
@@ -61,7 +73,8 @@
   (use-local-map solverlang-mode-map)
   (setq-local font-lock-defaults '(solverlang-font-lock-keywords))
   (setq-local indent-line-function 'solverlang-indent-line)
-  (setq-local comment-start "# "))
+  (setq-local comment-start "# ")
+  (setq-local left-margin-width 2))
 
 ; Associate mode with .sl files
 (add-to-list 'auto-mode-alist '("\\.sl\\'" . solverlang-mode))

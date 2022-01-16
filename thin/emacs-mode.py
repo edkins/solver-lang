@@ -1,12 +1,13 @@
 import sys
 
-linenum = 1
-for line0 in open(sys.argv[1]):
-    line = line0.strip()
-    if line != "":
-        if len(line) >= 4:
-            status = 'ok'
-        else:
-            status = 'bad'
-        print(f"line {linenum} {status}")
-    linenum += 1
+with open(sys.argv[1]) as f:
+    text = f.read()
+    pos = 1
+    for line in text.split('\n'):
+        if line != "":
+            if len(line) >= 4:
+                status = 'ok'
+            else:
+                status = 'bad'
+            print(f"range {pos} {pos+len(line)} {status}")
+        pos += len(line) + 1
