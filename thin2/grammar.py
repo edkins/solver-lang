@@ -1,7 +1,7 @@
 import lark
 
 grammar = lark.Lark(r'''
-?start: statement*
+start: statement*
 
 ?statement: def
         | introduce
@@ -10,11 +10,12 @@ grammar = lark.Lark(r'''
 def: DEF nametypes OPEN exprs CLOSE
 introduce: "introduce" nametypes OPEN exprs CLOSE
 nametypes: (nametype ",")* nametype?
-nametype: CNAME ":" type
+nametype: CNAME COLON type
 
 DEF: "def"
 OPEN: "{"
 CLOSE: "}"
+COLON: ":"
 
 exprs: expr*
 
@@ -58,13 +59,13 @@ mul: lexpr "*" mexpr
 
 lookup: term "[" expr "]"
 
-?term: int
-     | true
-     | false
+?term: INT
+     | TRUE
+     | FALSE
      | len
      | arr
      | call
-     | var
+     | CNAME
      | "(" expr ")"
      | listing
      | neg
@@ -77,10 +78,8 @@ call: CNAME "(" exprcomma* expr? ")"
 listing: "[" exprcomma* expr? "]"
 neg: "-" term
 
-var: CNAME
-int: INT
-true: "true"
-false: "false"
+TRUE: "true"
+FALSE: "false"
 
 %import common.CNAME
 %import common.INT

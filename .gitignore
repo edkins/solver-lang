@@ -1,7 +1,7 @@
 venv/
 .*.swp
 __pycache__/
-proof-general-install
+scratch/
 *~
 */#*#
 */.#*
