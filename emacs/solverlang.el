@@ -12,10 +12,10 @@
       (if (equal cmd "range")
 	  (if (equal status "ok")
 	      (progn
-		(set-text-properties start end '(font-lock-face success))
+		(set-text-properties (+ 1 start) (+ 1 end) '(font-lock-face success))
 	        0)
 	    (progn
-	      (set-text-properties start end '(font-lock-face error))
+	      (set-text-properties (+ 1 start) (+ 1 end) '(font-lock-face error))
 	      1))
 	(progn
 	  (error "Unexpected cmd received from python")
@@ -44,7 +44,7 @@
 (defun solverlang-verify-up-to (position)
   (let ((tempfile (make-temp-file "solverlang-input-")))
     (write-region 1 position tempfile)
-    (let ((lines (process-lines "python" (concat load-file-name "../thin/emacs-mode.py") tempfile))
+    (let ((lines (process-lines "python" (concat load-file-name "../thin2/emacs_mode.py") tempfile))
 	  (error-count 0))
       (solverlang-actually-remove-highlighting)
       (setq solverlang-doing-highlighting t)
