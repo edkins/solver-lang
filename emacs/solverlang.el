@@ -4,22 +4,24 @@
 (setq solverlang-doing-highlighting nil)
 
 (defun highlight-based-on-line (line)
-  (let ((words (split-string line)))
-    (let ((cmd (nth 0 words))
-	  (start (string-to-number (nth 1 words)))
-	  (end (string-to-number (nth 2 words)))
-	  (status (nth 3 words)))
-      (if (equal cmd "range")
-	  (if (equal status "ok")
+  (if (equal line "")
+      0
+    (let ((words (split-string line)))
+      (let ((cmd (nth 0 words))
+	    (start (string-to-number (nth 1 words)))
+	    (end (string-to-number (nth 2 words)))
+	    (status (nth 3 words)))
+	(if (equal cmd "range")
+	    (if (equal status "ok")
+		(progn
+		  (set-text-properties (+ 1 start) (+ 1 end) '(font-lock-face success))
+	          0)
 	      (progn
-		(set-text-properties (+ 1 start) (+ 1 end) '(font-lock-face success))
-	        0)
-	    (progn
-	      (set-text-properties (+ 1 start) (+ 1 end) '(font-lock-face error))
-	      1))
-	(progn
-	  (error "Unexpected cmd received from python")
-	  1)))))
+		(set-text-properties (+ 1 start) (+ 1 end) '(font-lock-face error))
+		1))
+	  (progn
+	    (error "Unexpected cmd received from python")
+	    1))))))
 	     
 
 (defun solverlang-remove-highlighting-hook (begin end)
@@ -27,7 +29,7 @@
       (solverlang-actually-remove-highlighting)))
 
 (defun solverlang-actually-remove-highlighting ()
-      (set-text-properties (point-min) (point-max) nil))
+      (set-text-properties 1 (+ 1 (buffer-size)) nil))
 
 (defun solverlang-verify-up-to-point ()
   (interactive)
@@ -44,7 +46,7 @@
 (defun solverlang-verify-up-to (position)
   (let ((tempfile (make-temp-file "solverlang-input-")))
     (write-region 1 position tempfile)
-    (let ((lines (process-lines "python" (concat load-file-name "../thin2/emacs_mode.py") tempfile))
+    (let ((lines (process-lines "python" (concat (file-name-directory (symbol-file 'solverlang-verify-up-to)) "../thin2/emacs_mode.py") tempfile))
 	  (error-count 0))
       (solverlang-actually-remove-highlighting)
       (setq solverlang-doing-highlighting t)
