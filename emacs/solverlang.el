@@ -1,7 +1,8 @@
 ;;; Based on https://www.emacswiki.org/emacs/ModeTutorial
 ;;; and https://www.emacswiki.org/emacs/SampleMode
 
-(setq solverlang-doing-highlighting nil)
+(make-variable-buffer-local 'solverlang-doing-highlighting)
+(setq-default solverlang-doing-highlighting nil)
 
 (defun highlight-based-on-line (line)
   (if (equal line "")
@@ -18,6 +19,7 @@
 	          0)
 	      (progn
 		(set-text-properties (+ 1 start) (+ 1 end) '(font-lock-face error))
+		(goto-char (+ 1 start))
 		1))
 	  (progn
 	    (error "Unexpected cmd received from python")
