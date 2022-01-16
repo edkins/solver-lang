@@ -7,13 +7,22 @@
 ;;; Syntax table
 (setq solverlang-mode-syntax-table
       (let ((st (make-syntax-table)))
-	(modify-syntax-entry ?# "<" st)
-	(modify-syntax-entry ?\n ">" st)
+	(modify-syntax-entry ?+ "." st)
+	(modify-syntax-entry ?- "." st)
+	(modify-syntax-entry ?* "." st)
+	(modify-syntax-entry ?/ "." st)
+	(modify-syntax-entry ?< "." st)
+	(modify-syntax-entry ?> "." st)
+	(modify-syntax-entry ?% "." st)
+	(modify-syntax-entry ?$ "." st)
+	(modify-syntax-entry ?& "." st)
+	(modify-syntax-entry ?| "." st)
 	st))
 
 ;;; Font lock keywords
 (setq solverlang-font-lock-keywords
-  '(("\\<def\\|introduce\\>" . font-lock-keyword-face)))
+      '(("\\_<\\(def\\|introduce\\)\\_>" . font-lock-keyword-face)
+	("\\_<\\(int\\|bool\\)\\_>" . font-lock-type-face)))
 
 ;;; Indentation
 (defun solverlang-indent-line ()
@@ -25,11 +34,7 @@
 	(prev-line-open-brace
 	 (save-excursion (forward-line -1) (looking-at ".*{")))
 	(current-line-close-brace
-	 (save-excursion (move-beginning-of-line nil) (looking-at ".*}")))
-	(before-text
-	 (<= (current-column) (current-indentation)))
-	(was-close-brace
-	 (save-excursion (forward-char -2) (looking-at "}"))))
+	 (save-excursion (move-beginning-of-line nil) (looking-at ".*}"))))
     (let ((adjusted-indent
 	   (+ prev-line-indent (if prev-line-open-brace 2 0) (if current-line-close-brace -2 0))))
     (if (not first-line) (indent-line-to adjusted-indent)))))
