@@ -7,8 +7,10 @@ def process(text: str) -> str:
     errors:list[Result] = []
     try:
         def handle_error(e: lark.exceptions.UnexpectedInput) -> bool:
-            if isinstance(e.token.start_pos, int) and isinstance(e.token.end_pos, int):
+            if isinstance(e, lark.exceptions.UnexpectedToken) and isinstance(e.token.start_pos, int) and isinstance(e.token.end_pos, int):
                 errors.append(Result((e.token.start_pos, e.token.end_pos), False))
+            elif isinstance(e, lark.exceptions.UnexpectedCharacters):
+                errors.append(Result((e.pos_in_stream, e.pos_in_stream + 1), False))
             return True
 
         ast = grammar.parse(text, on_error = handle_error)
