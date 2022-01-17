@@ -7,7 +7,7 @@ start: statement*
         | introduce
         | bare_expr
 
-def: DEF nametypes OPEN exprs CLOSE
+def: DEF nametypes OPEN NEWLINE exprs CLOSE NEWLINE
 introduce: "introduce" nametypes OPEN exprs CLOSE
 nametypes: (nametype ",")* nametype?
 nametype: CNAME COLON type
@@ -17,14 +17,14 @@ OPEN: "{"
 CLOSE: "}"
 COLON: ":"
 
-exprs: expr*
+exprs: bare_expr*
 
 ?type: inttype
        | booltype
 inttype: "int"
 booltype: "bool"
 
-bare_expr: expr
+bare_expr: expr NEWLINE
 ?expr: aexpr
      | eq
      | lt
@@ -83,7 +83,7 @@ FALSE: "false"
 
 %import common.CNAME
 %import common.INT
-%import common.WS
+%import common.NEWLINE
 
-%ignore WS
+%ignore /[ ]/+
 ''', parser='lalr')

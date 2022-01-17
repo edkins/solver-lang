@@ -38,11 +38,18 @@ def parse_nametype(ast: Ast) -> tuple[Var,Range]:
         name, _colon, typ = ast.children
         return Var(name.value, parse_type(typ)), (name.start_pos, name.end_pos)
     raise UnexpectedException()
-        
-def parse_statement(ast: Ast, env:Env) -> tuple[Statement]:
+
+def parse_inner_statement(ast: Ast, env:Env) -> tuple[Optional[Expr],Range]:
+    if isinstance(ast, lark.Tree):
+        if ast.data == 'bare_expr':
+            e, _nl = ast.children
+            return parse_expr(e, env)
+    raise UnexpectedException()
+
+def parse_statement(ast: Ast, env:Env) -> Statement:
     if isinstance(ast, lark.Tree):
         if ast.data == 'def':
-            _def, nametypes, _open, exprs, _close = ast.children
+            _def, nametypes, _open, _nl0, exprs, _close, _nl1 = ast.children
             xs:list[Var] = []
             for nametype in nametypes.children:
                 x,r = parse_nametype(nametype)
@@ -51,14 +58,17 @@ def parse_statement(ast: Ast, env:Env) -> tuple[Statement]:
                 env[x.name] = x
             es:list[Expr] = []
             for ch in exprs.children:
-                e,r = parse_expr(ch, env)
+                e,r = parse_inner_statement(ch, env)
                 if isinstance(e,Expr):
                     es.append(e)
                 else:
                     return Erroneous(r)
 
             return Def(xs, es, (_def.start_pos, _close.end_pos))
-    raise UnexpectedException()
+        elif ast.data == 'bare_expr':
+            cname, _nl = ast.children
+            print(_nl.start_pos, _nl.end_pos)
+    raise UnexpectedException(str(ast))
 
 def parse_script(ast: Ast) -> Script:
     env = dict()
