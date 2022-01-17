@@ -19,11 +19,46 @@ def binop(typ:str, a:Expr, b:Expr) -> Optional[Expr]:
             return a != b
         else:
             return None
+    elif typ == 'lt':
+        if a.sort() == z3.IntSort() and b.sort() == z3.IntSort():
+            return a < b
+        else:
+            return None
+    elif typ == 'le':
+        if a.sort() == z3.IntSort() and b.sort() == z3.IntSort():
+            return a <= b
+        else:
+            return None
+    elif typ == 'gt':
+        if a.sort() == z3.IntSort() and b.sort() == z3.IntSort():
+            return a > b
+        else:
+            return None
+    elif typ == 'ge':
+        if a.sort() == z3.IntSort() and b.sort() == z3.IntSort():
+            return a >= b
+        else:
+            return None
+    elif typ == 'add':
+        if a.sort() == z3.IntSort() and b.sort() == z3.IntSort():
+            return a + b
+        else:
+            return None
+    elif typ == 'sub':
+        if a.sort() == z3.IntSort() and b.sort() == z3.IntSort():
+            return a - b
+        else:
+            return None
+    elif typ == 'mul':
+        if a.sort() == z3.IntSort() and b.sort() == z3.IntSort():
+            return a * b
+        else:
+            return None
     raise UnexpectedException()
 
 def parse_expr(ast: Ast, env: Env) -> tuple[Optional[Expr],Range]:
     if isinstance(ast, lark.Tree):
-        if ast.data in ['eq','ne']:
+        if ast.data in ['eq','ne','lt','le','gt','ge','add','sub','mul']:
             c0, c1 = ast.children
             e0, r0 = parse_expr(c0, env)
             if not isinstance(e0, Expr):
