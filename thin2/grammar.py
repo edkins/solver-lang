@@ -37,7 +37,7 @@ bare_expr: expr NEWLINE
      | ge
      | ne
 
-eq: aexpr "==" aexpr
+eq: aexpr "=" aexpr
 lt: aexpr "<" aexpr
 le: aexpr "<=" aexpr
 gt: aexpr ">" aexpr
@@ -70,9 +70,13 @@ lookup: term "[" expr "]"
      | arr
      | call
      | CNAME
-     | "(" expr ")"
+     | paren
      | listing
      | neg
+
+paren: OPEN_PAREN expr CLOSE_PAREN
+OPEN_PAREN: "("
+CLOSE_PAREN: ")"
 
 len: /len\b/ lexpr
 arr: /arr\b/ lexpr

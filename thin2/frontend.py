@@ -2,14 +2,40 @@ from typing import Union, Optional
 import lark
 import z3
 from thin2.grammar import grammar
-from thin2.errors import UnexpectedException
+from thin2.errors import UnexpectedException, UnimplementedException
 from thin2.script import *
 
 Ast = Union[str,lark.Tree]
 Env = dict[str,Var]
 
+def binop(typ:str, a:Expr, b:Expr) -> Optional[Expr]:
+    if typ == 'eq':
+        if a.sort() == b.sort():
+            return a == b
+        else:
+            return None
+    elif typ == 'ne':
+        if a.sort() == b.sort():
+            return a != b
+        else:
+            return None
+    raise UnexpectedException()
+
 def parse_expr(ast: Ast, env: Env) -> tuple[Optional[Expr],Range]:
     if isinstance(ast, lark.Tree):
+        if ast.data in ['eq','ne']:
+            c0, c1 = ast.children
+            e0, r0 = parse_expr(c0, env)
+            if not isinstance(e0, Expr):
+                return None, r0
+            e1, r1 = parse_expr(c1, env)
+            if not isinstance(e1, Expr):
+                return None, r1
+            return binop(ast.data, e0, e1), (r0[0], r1[1])
+        elif ast.data == 'paren':
+            _o, e, _c = ast.children
+            ex, r = parse_expr(e, env)
+            return ex, (_o.start_pos, _c.end_pos)
         raise UnimplementedException()
     elif isinstance(ast, lark.Token):
         r = (ast.start_pos, ast.end_pos)
@@ -43,7 +69,11 @@ def parse_inner_statement(ast: Ast, env:Env) -> tuple[Optional[Expr],Range]:
     if isinstance(ast, lark.Tree):
         if ast.data == 'bare_expr':
             e, _nl = ast.children
-            return parse_expr(e, env)
+            ex,r = parse_expr(e, env)
+            if ex.sort() == z3.BoolSort():
+                return ex,r
+            else:
+                return None,r
     raise UnexpectedException(str(ast))
 
 def parse_statement(ast: Ast, env:Env) -> Statement:
@@ -69,7 +99,7 @@ def parse_statement(ast: Ast, env:Env) -> Statement:
         elif ast.data == 'bare_expr':
             ex, _nl = ast.children
             e,r = parse_expr(ex, env)
-            if isinstance(e,Expr):
+            if isinstance(e,Expr) and e.sort() == z3.BoolSort():
                 return BareExpr(e,r)
             else:
                 return Erroneous(r)
