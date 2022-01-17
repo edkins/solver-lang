@@ -86,4 +86,4 @@ FALSE: "false"
 %import common.WS
 
 %ignore WS
-''')
+''', parser='lalr')

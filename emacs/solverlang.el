@@ -113,6 +113,7 @@
   (setq-local indent-line-function 'solverlang-indent-line)
   (setq-local comment-start "# ")
   (setq-local left-margin-width 2)
+  (make-local-variable 'before-change-functions)
   (add-hook 'before-change-functions 'solverlang-remove-highlighting-hook))
 
 ; Associate mode with .sl files
