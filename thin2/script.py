@@ -24,15 +24,24 @@ class Var:
     def as_expr(self) -> Expr:
         return z3.Const(self.name, self.typ)
 
-class Def(Statement):
-    def __init__(self, xs:list[Var], exprs:list[Expr], r:Range):
+class Introduce(Statement):
+    def __init__(self, xs:list[Var], exprs:list[Expr], unique:bool, r:Range):
         self.xs = tuple(xs)
         self.exprs = tuple(exprs)
+        self.unique = unique
         self.r = r
 
     def validate_into(self, results: list[Statement]):
         results.append(Result(self.r, True))
 
+class BareExpr(Statement):
+    def __init__(self, expr:Expr, r:Range):
+        self.expr = expr
+        self.r = r
+
+    def validate_into(self, results: list[Statement]):
+        results.append(Result(self.r, True))
+        
 class Erroneous(Statement):
     def __init__(self, r:Range):
         self.r = r

@@ -48,7 +48,7 @@ def parse_inner_statement(ast: Ast, env:Env) -> tuple[Optional[Expr],Range]:
 
 def parse_statement(ast: Ast, env:Env) -> Statement:
     if isinstance(ast, lark.Tree):
-        if ast.data == 'def':
+        if ast.data in ['def','introduce']:
             _def, nametypes, _open, _nl0, exprs, _close, _nl1 = ast.children
             xs:list[Var] = []
             for nametype in nametypes.children:
@@ -65,10 +65,14 @@ def parse_statement(ast: Ast, env:Env) -> Statement:
                     else:
                         return Erroneous(r)
 
-            return Def(xs, es, (_def.start_pos, _close.end_pos))
+            return Introduce(xs, es, ast.data == 'def', (_def.start_pos, _close.end_pos))
         elif ast.data == 'bare_expr':
-            cname, _nl = ast.children
-            print(_nl.start_pos, _nl.end_pos)
+            ex, _nl = ast.children
+            e,r = parse_expr(ex, env)
+            if isinstance(e,Expr):
+                return BareExpr(e,r)
+            else:
+                return Erroneous(r)
     raise UnexpectedException(str(ast))
 
 def parse_script(ast: Ast) -> Script:
