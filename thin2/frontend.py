@@ -44,7 +44,7 @@ def parse_inner_statement(ast: Ast, env:Env) -> tuple[Optional[Expr],Range]:
         if ast.data == 'bare_expr':
             e, _nl = ast.children
             return parse_expr(e, env)
-    raise UnexpectedException()
+    raise UnexpectedException(str(ast))
 
 def parse_statement(ast: Ast, env:Env) -> Statement:
     if isinstance(ast, lark.Tree):
@@ -58,11 +58,12 @@ def parse_statement(ast: Ast, env:Env) -> Statement:
                 env[x.name] = x
             es:list[Expr] = []
             for ch in exprs.children:
-                e,r = parse_inner_statement(ch, env)
-                if isinstance(e,Expr):
-                    es.append(e)
-                else:
-                    return Erroneous(r)
+                if not (isinstance(ch, lark.Tree) and ch.data == 'blank'):
+                    e,r = parse_inner_statement(ch, env)
+                    if isinstance(e,Expr):
+                        es.append(e)
+                    else:
+                        return Erroneous(r)
 
             return Def(xs, es, (_def.start_pos, _close.end_pos))
         elif ast.data == 'bare_expr':

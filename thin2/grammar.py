@@ -7,8 +7,8 @@ start: statement*
         | introduce
         | bare_expr
 
-def: DEF nametypes OPEN NEWLINE exprs CLOSE NEWLINE
-introduce: "introduce" nametypes OPEN exprs CLOSE
+def: DEF nametypes OPEN NEWLINE inner_statements CLOSE NEWLINE
+introduce: "introduce" nametypes OPEN inner_statements CLOSE
 nametypes: (nametype ",")* nametype?
 nametype: CNAME COLON type
 
@@ -17,7 +17,10 @@ OPEN: "{"
 CLOSE: "}"
 COLON: ":"
 
-exprs: bare_expr*
+inner_statements: inner_statement*
+?inner_statement: bare_expr
+                | blank
+blank: NEWLINE
 
 ?type: inttype
        | booltype
