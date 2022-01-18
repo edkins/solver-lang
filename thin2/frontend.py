@@ -67,6 +67,12 @@ def parse_expr(ast: Ast, env: Env) -> tuple[Optional[Expr],Range]:
             if not isinstance(e1, Expr):
                 return None, r1
             return binop(ast.data, e0, e1), (r0[0], r1[1])
+        elif ast.data == 'neg':
+            c0, = ast.children
+            e0, r0 = parse_expr(c0, env)
+            if not isinstance(e0, Expr) or e0.sort() != z3.IntSort():
+                return None, r0
+            return -e0, r0
         elif ast.data == 'paren':
             _o, e, _c = ast.children
             ex, r = parse_expr(e, env)
@@ -121,6 +127,7 @@ def parse_statement(ast: Ast, env:Env) -> Statement:
                 if x.name in env:
                     return Erroneous(r)
                 env[x.name] = x
+                xs.append(x)
             es:list[Expr] = []
             for ch in exprs.children:
                 if not (isinstance(ch, lark.Tree) and ch.data == 'blank'):
