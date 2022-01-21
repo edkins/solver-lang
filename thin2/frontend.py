@@ -138,6 +138,15 @@ def parse_statement(ast: Ast, env:Env) -> Statement:
                         return Erroneous(r)
 
             return Introduce(xs, es, ast.data == 'def', (_def.start_pos, _close.end_pos))
+        elif ast.data == 'def_eq':
+            _def, name, _eq, expr, _nl = ast.children
+            e,r = parse_expr(expr, env)
+            if isinstance(e,Expr):
+                x = Var(name.value, e.sort())
+                env[x.name] = x
+                return DefEq(x, e, (_def.start_pos, _nl.start_pos))
+            else:
+                return Erroneous(r)
         elif ast.data == 'bare_expr':
             ex, _nl = ast.children
             e,r = parse_expr(ex, env)

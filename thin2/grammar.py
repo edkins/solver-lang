@@ -3,10 +3,12 @@ import lark
 grammar = lark.Lark(r'''
 start: statement*
 
-?statement: def
+?statement: def_eq
+        | def
         | introduce
         | bare_expr
 
+def_eq: DEF CNAME EQ expr NEWLINE
 def: DEF nametypes OPEN NEWLINE inner_statements CLOSE NEWLINE
 introduce: INTRODUCE nametypes OPEN NEWLINE inner_statements CLOSE NEWLINE
 nametypes: (nametype ",")* nametype?
@@ -17,6 +19,7 @@ INTRODUCE: "introduce"
 OPEN: "{"
 CLOSE: "}"
 COLON: ":"
+EQ: "="
 
 inner_statements: inner_statement*
 ?inner_statement: bare_expr

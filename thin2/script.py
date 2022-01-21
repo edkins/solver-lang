@@ -46,6 +46,17 @@ class Var:
     def alt_expr(self) -> Expr:
         return z3.Const(self.name + "'", self.typ)
 
+class DefEq(Statement):
+    def __init__(self, x:Var, expr:Expr, r:Range):
+        self.x = x
+        self.expr = expr
+        self.r = r
+
+    def validate_into(self, solver: z3.Solver, results: list[Statement]):
+        x = self.x.as_expr()
+        solver.add(x == self.expr)
+        results.append(Result(self.r, True))
+    
 class Introduce(Statement):
     def __init__(self, xs:list[Var], exprs:list[Expr], unique:bool, r:Range):
         if len(xs) == 0:
