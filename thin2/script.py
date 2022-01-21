@@ -43,6 +43,9 @@ class Var:
     def as_expr(self) -> Expr:
         return z3.Const(self.name, self.typ)
 
+    def alt_expr(self) -> Expr:
+        return z3.Const(self.name + "'", self.typ)
+
 class Introduce(Statement):
     def __init__(self, xs:list[Var], exprs:list[Expr], unique:bool, r:Range):
         if len(xs) == 0:
@@ -53,8 +56,17 @@ class Introduce(Statement):
         self.r = r
 
     def validate_into(self, solver: z3.Solver, results: list[Statement]):
-        stmt = z3.Exists([x.as_expr() for x in self.xs], and_zs(self.exprs))
+        anded = and_zs(self.exprs)
+        xs = [x.as_expr() for x in self.xs]
+        stmt = z3.Exists(xs, anded)
         valid = validity(solver, stmt)
+        if self.unique:
+            xs2 = [x.alt_expr() for x in self.xs]
+            pairs = list(zip(xs, xs2))
+            anded2 = z3.substitute(anded, pairs)
+            xs_eq_xs2 = and_zs([x == x2 for (x,x2) in pairs])
+            stmt2 = z3.ForAll(xs + xs2, z3.Implies(z3.And(anded, anded2), xs_eq_xs2))
+            valid = valid and validity(solver, stmt2)
         if valid:
             for expr in self.exprs:
                 solver.add(expr)
