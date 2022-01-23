@@ -6,6 +6,7 @@ start: statement*
 ?statement: def_eq
         | def
         | introduce
+        | fn
         | bare_expr
 
 def_eq: DEF CNAME EQ expr NEWLINE
@@ -14,8 +15,11 @@ introduce: INTRODUCE nametypes OPEN NEWLINE inner_statements CLOSE NEWLINE
 nametypes: (nametype ",")* nametype?
 nametype: CNAME COLON type
 
+fn: FN CNAME OPEN_PAREN nametypes CLOSE_PAREN EQ expr NEWLINE
+
 DEF: "def"
 INTRODUCE: "introduce"
+FN: "fn"
 OPEN: "{"
 CLOSE: "}"
 COLON: ":"
@@ -83,7 +87,8 @@ CLOSE_PAREN: ")"
 
 len: /len\b/ lexpr
 arr: /arr\b/ lexpr
-call: CNAME "(" exprcomma* expr? ")"
+call: CNAME OPEN_PAREN exprcommas CLOSE_PAREN
+exprcommas: exprcomma* expr?
 ?exprcomma: expr ","
 
 listing: "[" exprcomma* expr? "]"

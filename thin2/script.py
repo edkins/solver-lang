@@ -35,7 +35,10 @@ class Result:
 class Statement:
     pass
 
-class Var:
+class Symbol:
+    pass
+
+class Var(Symbol):
     def __init__(self, name: str, typ: Type):
         self.name = name
         self.typ = typ
@@ -46,6 +49,31 @@ class Var:
     def alt_expr(self) -> Expr:
         return z3.Const(self.name + "'", self.typ)
 
+class Func(Symbol):
+    def __init__(self, name: str, xs: list[Var], ret: Type):
+        if len(xs) == 0:
+            raise UnexpectedException('funcs should have at least one arg')
+        self.name = name
+        self.xs = xs
+        self.ret = ret
+
+    def call(self, args: list[Expr]) -> Expr:
+        if len(args) != len(self.xs):
+            raise UnexpectedException('arg count mismatch')
+        declref = z3.Function(self.name, *[x.typ for x in self.xs], self.ret)
+        return declref(*args)
+
+class DefFn(Statement):
+    def __init__(self, f:Func, expr:Expr, r:Range):
+        self.f = f
+        self.expr = expr
+        self.r = r
+
+    def validate_into(self, solver: z3.Solver, results: list[Statement]):
+        xs = [x.as_expr() for x in self.f.xs]
+        solver.add(z3.ForAll(xs, self.f.call(xs) == self.expr))
+        results.append(Result(self.r, True))
+    
 class DefEq(Statement):
     def __init__(self, x:Var, expr:Expr, r:Range):
         self.x = x

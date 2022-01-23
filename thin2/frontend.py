@@ -6,7 +6,7 @@ from thin2.errors import UnexpectedException, UnimplementedException
 from thin2.script import *
 
 Ast = Union[str,lark.Tree]
-Env = dict[str,Var]
+Env = dict[str,Symbol]
 
 def binop(typ:str, a:Expr, b:Expr) -> Optional[Expr]:
     if typ == 'eq':
@@ -77,11 +77,25 @@ def parse_expr(ast: Ast, env: Env) -> tuple[Optional[Expr],Range]:
             _o, e, _c = ast.children
             ex, r = parse_expr(e, env)
             return ex, (_o.start_pos, _c.end_pos)
+        elif ast.data == 'call':
+            f, _o, exprs, _c = ast.children
+            es:list[Expr] = []
+            for expr in exprs.children:
+                e, r = parse_expr(expr, env)
+                if isinstance(e, Expr):
+                    es.append(e)
+                else:
+                    return None, r
+
+            func = env.get(f.value)
+            if not isinstance(func, Func) or len(func.xs) != len(es):
+                return None, (f.start_pos, _c.end_pos)
+            return func.call(es), (f.start_pos, _c.end_pos)
         raise UnimplementedException()
     elif isinstance(ast, lark.Token):
         r = (ast.start_pos, ast.end_pos)
         if ast.type == 'CNAME':
-            if ast.value in env:
+            if isinstance(env.get(ast.value), Var):
                 return env[ast.value].as_expr(), r
             else:
                 return None, r
@@ -147,6 +161,23 @@ def parse_statement(ast: Ast, env:Env) -> Statement:
                 return DefEq(x, e, (_def.start_pos, _nl.start_pos))
             else:
                 return Erroneous(r)
+        elif ast.data == 'fn':
+            _fn, name, _open, nametypes, _close, _eq, expr, _nl = ast.children
+            inner_env = dict(env)
+            xs:list[Var] = []
+            for nametype in nametypes.children:
+                x,r = parse_nametype(nametype)
+                if x.name in inner_env:
+                    return Erroneous(r)
+                inner_env[x.name] = x
+                xs.append(x)
+            e,r = parse_expr(expr, inner_env)
+            if isinstance(e,Expr):
+                f = Func(name.value, xs, e.sort())
+                env[f.name] = f
+                return DefFn(f, e, (_fn.start_pos, _nl.start_pos))
+            else:
+                return Erroneous(r)    
         elif ast.data == 'bare_expr':
             ex, _nl = ast.children
             e,r = parse_expr(ex, env)
